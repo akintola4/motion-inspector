@@ -164,7 +164,7 @@ async function main() {
     await sleep(800);
     const tabId = await tabIdFor(sw, page);
     const panel = await openPanel(ctx, extId, tabId);
-    await panel.waitForSelector('.row', { timeout: 8000 }).catch(() => {});
+    await panel.waitForSelector('.rows .row', { timeout: 8000 }).catch(() => {});
     await sleep(fx.wait ?? 1200);
 
     const snap = await page.evaluate(() =>
@@ -174,11 +174,16 @@ async function main() {
     const [ok, detail] = fx.expect(list, snap.jsDriven.map((j) => `${j.selector} (${j.properties.join(',')})`));
     check(`${fx.file}: captures expected animations`, ok, detail);
 
+    // Rows are grouped and ended ones are filtered out, so compare against the "All" count.
     const rows = await panel.$$eval('.rows .row', (els) => els.length);
-    check(`${fx.file}: panel lists them`, rows >= 1 && Math.abs(rows - snap.animations.length) <= 1, `${rows} rows`);
+    await panel.click('.seg-btn[data-filter="all"]');
+    await sleep(300);
+    const allCount = Number(await panel.textContent('.seg-btn[data-filter="all"] .seg-count'));
+    await panel.click('.seg-btn[data-filter="live"]');
+    check(`${fx.file}: panel lists them`, rows >= 1 && Math.abs(allCount - snap.animations.length) <= 1, `${rows} rows, all=${allCount}, agent=${snap.animations.length}`);
 
-    // Export every format for the first row.
-    await panel.click('.rows .row');
+    // Export every format for the first animation row.
+    await panel.click('.rows .row[data-id]');
     await panel.waitForSelector('.detail .code');
     const ex = await exportsFor(panel);
     allExports[fx.file] = ex;
@@ -188,7 +193,7 @@ async function main() {
     if (fx.file === 'motion.html') {
       await panel.keyboard.press('Escape');
       await sleep(200);
-      await panel.locator('.rows .row', { hasText: 'm-spring' }).first().click();
+      await panel.locator('.rows .row[data-id]', { hasText: 'm-spring' }).first().click();
       await sleep(300);
       const springEx = await exportsFor(panel);
       allExports['motion.html#spring'] = springEx;
@@ -212,7 +217,7 @@ async function main() {
     await sleep(1000);
     const tabId = await tabIdFor(sw, page);
     const panel = await openPanel(ctx, extId, tabId);
-    await panel.waitForSelector('.row');
+    await panel.waitForSelector('.rows .row');
     await sleep(800);
 
     await panel.click('.seg-btn[data-rate="0.25"]');
@@ -255,7 +260,7 @@ async function main() {
     check('scrub again to 150 ms', p.animations.filter((a) => a.kind !== 'css-transition').every((a) => a.currentTime === 150));
 
     // Per-animation scrub on the WAAPI slide.
-    const slideRow = panel.locator('.rows .row', { hasText: 'slide' }).first();
+    const slideRow = panel.locator('.rows .row[data-id]', { hasText: 'slide' }).first();
     await slideRow.click();
     await panel.waitForSelector('.detail .slider');
     await setRange(panel, '.detail .slider', 777);
@@ -266,48 +271,59 @@ async function main() {
     check('per-animation scrub moves only that animation', slide?.currentTime === 777 && others.every((a) => a.currentTime === 150), `slide=${slide?.currentTime}`);
 
     // Screenshots: light + dark, with the spring selected for a good curve.
-    await panel.locator('.rows .row', { hasText: 'drop' }).first().click();
+    await panel.keyboard.press('Escape');
+    await sleep(200);
+    await panel.locator('.rows .row[data-id]', { hasText: 'drop' }).first().click();
     await setRange(panel, '.transport .slider', 420);
     await sleep(500);
     await panel.click('.seg-btn[data-tab="motion"]');
     await sleep(200);
-    await panel.$eval('.detail', (el) => (el.scrollTop = 0));
-    await panel.screenshot({ path: join(SHOTS, 'panel-light.png') });
+    await panel.$eval('.detail-scroll', (el) => (el.scrollTop = 0));
+    await panel.screenshot({ path: join(SHOTS, 'detail-light.png') });
 
     const dark = await openPanel(ctx, extId, tabId, 'dark');
-    await dark.waitForSelector('.row');
+    await dark.waitForSelector('.rows .row');
     await sleep(500);
-    await dark.locator('.rows .row', { hasText: 'drop' }).first().click();
+    await dark.locator('.rows .row[data-id]', { hasText: 'drop' }).first().click();
     await sleep(400);
     await dark.click('.seg-btn[data-tab="motion"]');
     await sleep(300);
-    await dark.$eval('.detail', (el) => (el.scrollTop = 0));
-    await dark.screenshot({ path: join(SHOTS, 'panel-dark.png') });
+    await dark.$eval('.detail-scroll', (el) => (el.scrollTop = 0));
+    await dark.screenshot({ path: join(SHOTS, 'detail-dark.png') });
 
     // The whole detail column, for checking the lower sections render.
-    await dark.setViewportSize({ width: PANEL_SIZE.width, height: 1700 });
+    await dark.setViewportSize({ width: PANEL_SIZE.width, height: 1500 });
     await sleep(300);
     await dark.screenshot({ path: join(SHOTS, 'detail-full-dark.png') });
     await dark.setViewportSize(PANEL_SIZE);
 
-    // List-only views (nothing selected).
+    // Back to the list: Escape returns focus to the row we came from.
     await dark.keyboard.press('Escape');
     await sleep(300);
+    const backFocus = await dark.evaluate(() => (document.activeElement as HTMLElement | null)?.textContent ?? '');
+    check('Escape goes back to the list and refocuses the row', /drop/.test(backFocus), backFocus.slice(0, 40));
+    await dark.keyboard.press('ArrowDown');
+    const nextFocus = await dark.evaluate(() => (document.activeElement as HTMLElement | null)?.matches('.row[data-nav]') ?? false);
+    check('ArrowDown moves focus to the next row', nextFocus);
+    await dark.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await dark.screenshot({ path: join(SHOTS, 'list-dark.png') });
     await panel.keyboard.press('Escape');
     await sleep(300);
+    await panel.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await panel.screenshot({ path: join(SHOTS, 'list-light.png') });
 
     // GSAP export screenshot.
-    await panel.locator('.rows .row', { hasText: 'rotation' }).first().click();
+    await panel.locator('.rows .row[data-id]', { hasText: 'rotation' }).first().click();
     await sleep(300);
     await panel.click('.seg-btn[data-tab="gsap"]');
     await sleep(200);
-    await panel.$eval('.detail', (el) => (el.scrollTop = 0));
+    await panel.$eval('.detail-scroll', (el) => (el.scrollTop = 0));
     await panel.screenshot({ path: join(SHOTS, 'export-gsap-light.png') });
 
     // Overview: page + panel side by side.
-    await panel.locator('.rows .row', { hasText: 'drop' }).first().click();
+    await panel.keyboard.press('Escape');
+    await sleep(200);
+    await panel.locator('.rows .row[data-id]', { hasText: 'drop' }).first().click();
     await panel.click('.seg-btn[data-tab="css"]');
     await sleep(400);
     const panelPng = await panel.screenshot();
@@ -335,6 +351,95 @@ async function main() {
     await sleep(500);
     p = await probe(page);
     check('closing the panel leaves the page running at 1×', p.animations.every((a) => a.playbackRate === 1));
+    await page.close();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Noisy page: grouping, ended filter, zero-length, iteration readout */
+  /* ---------------------------------------------------------------- */
+  {
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/noisy.html`);
+    await sleep(600);
+    const tabId = await tabIdFor(sw, page);
+
+
+    const panel = await openPanel(ctx, extId, tabId);
+    await panel.waitForSelector('.rows .row');
+    // Let the pulses run past two iterations and the chips finish a few transitions.
+    await sleep(4600);
+
+    const polls = await page.evaluate(() => {
+      type Poll = { session: string; order: string[]; specs: unknown[] };
+      const mi = (window as unknown as { __motionInspector: { poll(s: string | null, k: string[]): Poll } }).__motionInspector;
+      const first = mi.poll(null, []);
+      const second = mi.poll(first.session, first.order);
+      return { order: first.order.length, firstSpecs: first.specs.length, secondSpecs: second.specs.length };
+    });
+    check('poll sends specs once, then only live state', polls.firstSpecs === polls.order && polls.secondSpecs <= 2, JSON.stringify(polls));
+
+    const group = panel.locator('.rows .row.is-group', { hasText: 'pulse' });
+    const count = (await group.locator('.row-count').textContent()) ?? '';
+    check('noisy.html: 12 animate-pulse skeletons collapse into one row', (await group.count()) === 1 && count === '×12', count);
+    const subtitle = (await group.locator('.row-sub').textContent()) ?? '';
+    check('noisy.html: group subtitle names the element, not a selector path', /12 elements · div in article\.card/.test(subtitle), subtitle);
+
+    const liveEnded = await panel.$$eval('.rows .row[data-id].is-ended', (els) => els.length);
+    const liveCount = Number(await panel.textContent('.seg-btn[data-filter="live"] .seg-count'));
+    const endedCount = Number(await panel.textContent('.seg-btn[data-filter="ended"] .seg-count'));
+    check('noisy.html: Live filter (default) hides ended animations', liveEnded === 0 && endedCount > 0, `live=${liveCount} ended=${endedCount}`);
+    const noop = (await panel.textContent('.noop-note')) ?? '';
+    check('noisy.html: zero-length animations are hidden with a note', /zero-length animations? hidden/.test(noop), noop);
+
+    await panel.screenshot({ path: join(SHOTS, 'noisy-light.png') });
+
+    await panel.click('.seg-btn[data-filter="ended"]');
+    await sleep(400);
+    const endedRows = await panel.$$eval('.rows .row', (els) => els.map((e) => e.classList.contains('is-ended')));
+    check('noisy.html: Ended filter shows only ended animations', endedRows.length > 0 && endedRows.every(Boolean), `${endedRows.length} rows`);
+    await panel.click('.seg-btn[data-filter="live"]');
+    await sleep(300);
+
+    await group.click();
+    await sleep(300);
+    const children = await panel.$$eval('.rows .row.is-child', (els) => els.length);
+    check('noisy.html: expanding the group lists all 12 elements', children === 12, `${children}`);
+    await panel.screenshot({ path: join(SHOTS, 'noisy-expanded-light.png') });
+
+    // Pause, then open one pulse: readout is the position inside the current iteration.
+    await panel.click('button.play');
+    await sleep(400);
+    await panel.locator('.rows .row.is-child').first().click();
+    await panel.waitForSelector('.detail .scrub-one .time');
+    await sleep(400);
+    const readout = (await panel.textContent('.detail .scrub-one .time')) ?? '';
+    const slider = await panel.$eval('.detail .slider', (el) => ({ value: Number((el as HTMLInputElement).value), max: Number((el as HTMLInputElement).max) }));
+    const p = await probe(page);
+    const pulse = p.animations.find((a) => a.name === 'pulse');
+    const m = readout.match(/^(\d+) \/ 2000 ms · iteration (\d+)$/);
+    const expected = pulse?.currentTime != null ? Math.round(pulse.currentTime % 2000) : -1;
+    check(
+      'iteration readout shows the time inside the current iteration',
+      !!m && Number(m[2]) >= 2 && slider.max === 2000 && slider.value <= slider.max,
+      `${readout}; slider ${slider.value}/${slider.max}`,
+    );
+    check('iteration readout matches the page', !!m && Math.abs(Number(m[1]) - expected) <= 1 || !pulse, `readout ${m?.[1]} page ${expected} (currentTime ${pulse?.currentTime})`);
+    await panel.$eval('.detail-scroll', (el) => (el.scrollTop = 0));
+    await panel.screenshot({ path: join(SHOTS, 'noisy-detail-light.png') });
+
+    const dark = await openPanel(ctx, extId, tabId, 'dark');
+    await dark.waitForSelector('.rows .row');
+    await sleep(600);
+    await dark.screenshot({ path: join(SHOTS, 'noisy-dark.png') });
+    await dark.locator('.rows .row.is-group', { hasText: 'pulse' }).click();
+    await sleep(200);
+    await dark.locator('.rows .row.is-child').first().click();
+    await sleep(500);
+    await dark.screenshot({ path: join(SHOTS, 'noisy-detail-dark.png') });
+
+    await panel.click('button.play');
+    await dark.close();
+    await panel.close();
     await page.close();
   }
 
