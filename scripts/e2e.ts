@@ -6,9 +6,10 @@
  *   pnpm e2e              (builds first)
  *   HEADED=1 pnpm e2e     (watch it run)
  *
- * The real side panel can't be opened from automation (it needs a click on
- * the toolbar icon), so the panel page is opened as a normal tab at side
- * panel width with ?tabId=<fixture tab>, which is the same page and code.
+ * Playwright can't click the toolbar icon or reach into the real side
+ * panel, so UI checks run on the same panel page opened as a tab at side
+ * panel width with ?tabId=<fixture tab>. A separate check opens the real
+ * side panel with chrome.sidePanel.open and confirms it attaches.
  */
 import { chromium, type BrowserContext, type Page, type Worker } from 'playwright';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -270,6 +271,7 @@ async function main() {
     await sleep(500);
     await panel.click('.seg-btn[data-tab="motion"]');
     await sleep(200);
+    await panel.$eval('.detail', (el) => (el.scrollTop = 0));
     await panel.screenshot({ path: join(SHOTS, 'panel-light.png') });
 
     const dark = await openPanel(ctx, extId, tabId, 'dark');
@@ -279,7 +281,14 @@ async function main() {
     await sleep(400);
     await dark.click('.seg-btn[data-tab="motion"]');
     await sleep(300);
+    await dark.$eval('.detail', (el) => (el.scrollTop = 0));
     await dark.screenshot({ path: join(SHOTS, 'panel-dark.png') });
+
+    // The whole detail column, for checking the lower sections render.
+    await dark.setViewportSize({ width: PANEL_SIZE.width, height: 1700 });
+    await sleep(300);
+    await dark.screenshot({ path: join(SHOTS, 'detail-full-dark.png') });
+    await dark.setViewportSize(PANEL_SIZE);
 
     // List-only views (nothing selected).
     await dark.keyboard.press('Escape');
@@ -294,6 +303,7 @@ async function main() {
     await sleep(300);
     await panel.click('.seg-btn[data-tab="gsap"]');
     await sleep(200);
+    await panel.$eval('.detail', (el) => (el.scrollTop = 0));
     await panel.screenshot({ path: join(SHOTS, 'export-gsap-light.png') });
 
     // Overview: page + panel side by side.
@@ -301,12 +311,13 @@ async function main() {
     await panel.click('.seg-btn[data-tab="css"]');
     await sleep(400);
     const panelPng = await panel.screenshot();
+    await page.setViewportSize({ width: 1100, height: 900 });
     const pagePng = await page.screenshot();
     const composer = await ctx.newPage();
     await composer.setViewportSize({ width: 1100 + PANEL_SIZE.width, height: 900 });
     await composer.setContent(
       `<body style="margin:0;display:flex;background:#e5e5e5;height:900px">
-        <img src="data:image/png;base64,${pagePng.toString('base64')}" style="width:1100px;height:760px;object-fit:cover;object-position:top left">
+        <img src="data:image/png;base64,${pagePng.toString('base64')}" style="width:1100px;height:900px">
         <img src="data:image/png;base64,${panelPng.toString('base64')}" style="width:${PANEL_SIZE.width}px;height:900px;border-left:1px solid #d4d4d4">
       </body>`,
     );
@@ -324,6 +335,42 @@ async function main() {
     await sleep(500);
     p = await probe(page);
     check('closing the panel leaves the page running at 1×', p.animations.every((a) => a.playbackRate === 1));
+    await page.close();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* The real side panel                                               */
+  /* ---------------------------------------------------------------- */
+  {
+    // chrome.sidePanel.open needs a user gesture; a Playwright click in an
+    // extension page counts as one. The opened panel isn't exposed as a
+    // Playwright page, so check its effect: it follows the active tab and
+    // injects the agent there.
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/waapi.html`);
+    const opener = await ctx.newPage();
+    await opener.goto(`chrome-extension://${extId}/sidepanel.html?tabId=-1`);
+    await opener.evaluate(() => {
+      const b = document.createElement('button');
+      b.id = 'open-side-panel';
+      b.style.cssText = 'position:fixed;inset:0 auto auto 0;width:80px;height:40px;z-index:9';
+      b.onclick = async () => {
+        const w = await chrome.windows.getCurrent();
+        await chrome.sidePanel.open({ windowId: w.id! });
+        b.dataset.ok = '1';
+      };
+      document.body.append(b);
+    });
+    await opener.click('#open-side-panel');
+    await sleep(600);
+    await page.bringToFront();
+    await sleep(1500);
+    const contexts = await sw.evaluate(async () =>
+      (await chrome.runtime.getContexts({ contextTypes: ['SIDE_PANEL' as chrome.runtime.ContextType] })).length,
+    );
+    const injected = await page.evaluate(() => !!(window as unknown as Record<string, unknown>).__motionInspector);
+    check('real side panel opens and attaches to the active tab', contexts === 1 && injected, `contexts=${contexts} injected=${injected}`);
+    await opener.close();
     await page.close();
   }
 
