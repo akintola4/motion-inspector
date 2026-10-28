@@ -4,7 +4,7 @@ import { summarizeEasing } from '../../lib/export/shared';
 import { toCss, toGsap, toLinearExport, toMotion } from '../../lib/export';
 import { camelToKebab } from '../../lib/css-props';
 import { tidyEasing } from '../../lib/easing';
-import { clear, h } from './h';
+import { clear, h, numSlot, setAttr, setText } from './h';
 import { bigCurve, type BigCurve } from './curve';
 import { icons } from './icons';
 import { highlight } from './code';
@@ -48,15 +48,21 @@ async function copyText(text: string) {
   }
 }
 
-/** A copy button that confirms for a moment, then resets. */
+/**
+ * A copy button that confirms for a moment, then resets. Only the icon and
+ * colour change (copy → check, green): the label stays "Copy" so the button
+ * keeps its width. The word "Copied" goes to screen readers and the tooltip.
+ */
 function copyButton(getText: () => string, label: string, withText: boolean) {
-  const btn = h('button', { class: withText ? 'btn btn-ghost copy' : 'icon-btn copy', type: 'button', 'aria-label': label, title: label });
+  const icon = h('span', { class: 'copy-icon', html: icons.copy });
+  const said = h('span', { class: 'sr-only', role: 'status' });
+  const btn = h('button', { class: withText ? 'btn btn-ghost copy' : 'icon-btn copy', type: 'button', 'aria-label': label, title: label }, icon, withText ? h('span', {}, 'Copy') : null, said);
   const show = (done: boolean) => {
-    btn.innerHTML = done ? icons.check : icons.copy;
-    if (withText) btn.append(h('span', {}, done ? 'Copied' : 'Copy'));
+    icon.innerHTML = done ? icons.check : icons.copy;
+    said.textContent = done ? 'Copied' : '';
+    btn.title = done ? 'Copied' : label;
     btn.classList.toggle('is-done', done);
   };
-  show(false);
   let timer = 0;
   btn.addEventListener('click', async () => {
     await copyText(getText());
@@ -71,7 +77,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
   let currentId: string | null = null;
   let curve: BigCurve | null = null;
   let slider: HTMLInputElement | null = null;
-  let readout: HTMLElement | null = null;
+  let readout: Readout | null = null;
   let stateEl: HTMLElement | null = null;
   let siblingsEl: HTMLElement | null = null;
   let scrollEl: HTMLElement | null = null;
@@ -112,13 +118,13 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
       if (!m) return;
       const v = Number(slider!.value);
       cb.onScrub(s.id, m.toTime(v));
-      if (readout) readout.textContent = m.label.replace(/^\d+/, String(Math.round(v)));
+      readout?.set(m.label.replace(/^\d+/, String(Math.round(v))), m.max);
     });
     slider.addEventListener('change', () => {
       dragging = false;
       dragModel = null;
     });
-    readout = h('span', { class: 'time' });
+    readout = createReadout();
     stateEl = h('span', { class: 'row-state' });
     siblingsEl = h('p', { class: 'note' });
 
@@ -135,6 +141,15 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
     const codeEl = h('code', {});
     const pre = h('pre', { class: 'code', tabindex: '0' }, codeEl);
     let code = '';
+    // Every format is generated once per drill-in; tab clicks only swap text.
+    const codes = new Map<ExportTab, string>();
+    for (const t of TABS) {
+      try {
+        codes.set(t.id, t.fn(s));
+      } catch (err) {
+        codes.set(t.id, `/* couldn't generate ${t.label}: ${(err as Error).message} */`);
+      }
+    }
     const tabButtons = TABS.map((t) =>
       h(
         'button',
@@ -156,16 +171,23 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
       for (const b of tabButtons) {
         const on = b.dataset.tab === tab;
         b.classList.toggle('is-on', on);
-        b.setAttribute('aria-selected', String(on));
+        setAttr(b, 'aria-selected', String(on));
       }
       const t = TABS.find((x) => x.id === tab) ?? TABS[0]!;
-      try {
-        code = t.fn(s);
-      } catch (err) {
-        code = `/* couldn't generate ${t.label}: ${(err as Error).message} */`;
-      }
+      code = codes.get(t.id)!;
       codeEl.innerHTML = highlight(code);
       pre.scrollTop = 0;
+      pre.scrollLeft = 0;
+    }
+    /* Size the block to the tallest format (capped by max-height), so
+       switching tabs never moves the Keyframes section or the page. */
+    function lockHeight() {
+      let max = 0;
+      for (const t of TABS) {
+        codeEl.innerHTML = highlight(codes.get(t.id)!);
+        max = Math.max(max, pre.offsetHeight);
+      }
+      pre.style.minHeight = `${max}px`;
     }
 
     const easeNote =
@@ -203,7 +225,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
           h('span', { class: 'label' }, easeNote),
           h('code', { class: 'ease-text', title: tidyEasing(ease.css) }, ease.source === 'per-keyframe' ? 'per keyframe' : tidyEasing(ease.css)),
         ),
-        h('div', { class: 'scrub-one' }, slider, readout),
+        h('div', { class: 'scrub-one' }, slider, readout.el),
       ),
       h('dl', { class: 'facts' }, ...facts.map(([k, v]) => h('div', { class: 'fact' }, h('dt', {}, k), h('dd', {}, v)))),
       h(
@@ -255,11 +277,13 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
       h('div', { class: 'detail-bar' }, back, h('span', { class: 'kind', dataset: { kind: s.kind } }, KIND_LABEL[s.kind])),
       scrollEl,
     );
+    lockHeight();
     showTab();
   }
 
   function render(entry: AnimationEntry | null, ctx: DetailContext) {
     if (!entry) {
+      if (currentId == null && root.hidden) return;
       currentId = null;
       spec = null;
       sample = null;
@@ -267,7 +291,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
       clear(root);
       return;
     }
-    root.hidden = false;
+    if (root.hidden) root.hidden = false;
     const fresh = entry.spec.id !== currentId;
     if (fresh) {
       currentId = entry.spec.id;
@@ -278,22 +302,24 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
     const disabled = live.ended || live.scrollLinked;
     if (stateEl) {
       const text = stateText(entry, ctx.paused);
-      stateEl.textContent = text;
-      stateEl.hidden = !text;
+      setText(stateEl, text);
+      if (stateEl.hidden !== !text) stateEl.hidden = !text;
     }
     if (siblingsEl) {
-      siblingsEl.textContent = ctx.siblings ? `Same animation on ${ctx.siblings} other element${ctx.siblings === 1 ? '' : 's'}.` : '';
-      siblingsEl.hidden = !ctx.siblings;
+      setText(siblingsEl, ctx.siblings ? `Same animation on ${ctx.siblings} other element${ctx.siblings === 1 ? '' : 's'}.` : '');
+      if (siblingsEl.hidden !== !ctx.siblings) siblingsEl.hidden = !ctx.siblings;
     }
     if (!dragging) {
       model = oneScrub(s, live.currentTime);
       if (slider) {
-        slider.max = String(Math.round(model.max));
-        slider.value = String(Math.round(model.value));
-        slider.disabled = disabled;
+        const max = String(Math.round(model.max));
+        const value = String(Math.round(model.value));
+        if (slider.max !== max) slider.max = max;
+        if (slider.value !== value) slider.value = value;
+        if (slider.disabled !== disabled) slider.disabled = disabled;
       }
       curve?.setProgress(iterationProgress(s, live.currentTime));
-      if (readout) readout.textContent = live.scrollLinked ? 'Scroll-linked' : live.ended ? 'Ended' : model.label;
+      readout?.set(live.scrollLinked ? 'Scroll-linked' : live.ended ? 'Ended' : model.label, model.max);
     }
     const running = live.playState === 'running' && !disabled && live.currentTime != null;
     sample = running ? { t: live.currentTime!, at: performance.now(), rate: live.playbackRate, running } : null;
@@ -305,6 +331,63 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
     render,
     get id() {
       return currentId;
+    },
+  };
+}
+
+interface Readout {
+  el: HTMLElement;
+  set(label: string, max: number): void;
+}
+
+/**
+ * The per-animation readout, e.g. "588 / 2000 ms · iteration 3". The current
+ * time and the iteration number sit in fixed-width slots, so the text (and
+ * the slider beside it) don't move as the numbers tick each poll.
+ */
+function createReadout(): Readout {
+  const cur = numSlot(4);
+  const mid = h('span', {});
+  const where = h('span', {});
+  const iter = numSlot(2);
+  iter.el.classList.add('num-start');
+  const tail = h('span', {});
+  const word = h('span', {});
+  const el = h('span', { class: 'time readout' }, cur.el, mid, where, iter.el, tail, word);
+  const RE = /^(\d+)( \/ \d+ ms)(?:( · iteration )(\d+)(.*)|(.*))$/;
+  return {
+    el,
+    set(label, max) {
+      const m = RE.exec(label);
+      const show = (node: HTMLElement, on: boolean) => {
+        if (node.hidden === on) node.hidden = !on;
+      };
+      show(word, !m);
+      show(cur.el, !!m);
+      show(mid, !!m);
+      if (!m) {
+        setText(word, label);
+        show(where, false);
+        show(iter.el, false);
+        show(tail, false);
+        return;
+      }
+      cur.digits(String(Math.round(max)).length);
+      cur.set(m[1]!);
+      setText(mid, m[2]!);
+      show(where, true);
+      show(tail, true);
+      if (m[4] != null) {
+        setText(where, m[3]!);
+        iter.digits(Math.max(2, m[4].length));
+        iter.set(m[4]);
+        show(iter.el, true);
+        setText(tail, m[5] ?? '');
+      } else {
+        setText(where, m[6] ?? '');
+        show(iter.el, false);
+        setText(tail, '');
+      }
     },
   };
 }

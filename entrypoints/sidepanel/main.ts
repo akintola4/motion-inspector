@@ -1,8 +1,8 @@
 import './style.css';
 import type { AgentPoll, AgentSnapshot, AnimationEntry, AnimationSpec } from '../../lib/types';
 import { iterationProgress } from '../../lib/timing';
-import { filterAnimations, groupAnimations, groupKey, type StatusFilter } from '../../lib/grouping';
-import { h } from './h';
+import { filterAnimations, groupAnimations, groupKey, lingeringIds, type StatusFilter } from '../../lib/grouping';
+import { h, numSlot, setAttr, setText } from './h';
 import { icons } from './icons';
 import { setupTheme } from './theme';
 import { RestrictedPageError, TabBridge, isRestrictedUrl } from './bridge';
@@ -10,6 +10,8 @@ import { createList } from './list';
 import { createDetail, type ExportTab } from './detail';
 
 const POLL_MS = 250;
+/** A just-ended animation stays under Live this long, so short re-triggering (and ping-ponging) transitions don’t blink rows in and out, and a hover transition stays put long enough to click. */
+const LINGER_MS = 3000;
 const RATES = [0.1, 0.25, 0.5, 1];
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'live', label: 'Live' },
@@ -31,6 +33,10 @@ let exportTab: ExportTab = 'css';
 let filter: StatusFilter = 'live';
 let showNoop = false;
 const expanded = new Set<string>();
+const endedAt = new Map<string, number>();
+let lingerPrimed = false;
+/** Next list render lays rows out fresh instead of keeping their order. */
+let reorder = true;
 let status: 'loading' | 'ready' | 'restricted' | 'error' = 'loading';
 let errorText = '';
 let inFlight = false;
@@ -110,33 +116,46 @@ const themeBtn = h('button', { class: 'icon-btn', type: 'button' });
 const hostEl = h('span', { class: 'host' }, '');
 const gsapEl = h('span', { class: 'badge', hidden: true, title: 'GSAP found on this page; its global timeline follows the controls.' }, 'GSAP');
 
+/* Live / paused: a dot beside the host. The word is still there for screen
+   readers (role=status) and on hover (title). */
+const statusLabel = h('span', { class: 'sr-only', role: 'status' });
+const statusEl = h('span', { class: 'status' }, h('span', { class: 'status-dot', 'aria-hidden': 'true' }), statusLabel);
+
 const playBtn = h('button', { class: 'btn btn-primary play', type: 'button', 'aria-label': 'Pause all' });
-const statusEl = h('span', { class: 'status', role: 'status' });
 const restartBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Restart all', title: 'Restart all', html: icons.restart });
 const scrub = h('input', { type: 'range', min: '0', max: '1000', step: '1', value: '0', class: 'slider timeline', 'aria-label': 'Scrub all animations' });
-const timeEl = h('span', { class: 'time' }, '');
+/* "588 / 2000 ms" when paused, "2000 ms" when live. The current-time slot
+   keeps its width in both, so the timeline never resizes. */
+const timeCur = numSlot(4);
+const timeSep = h('span', { class: 'time-sep' }, ' / ');
+const timeEnd = numSlot(4);
+const timeEl = h('span', { class: 'time' }, timeCur.el, timeSep, timeEnd.el, ' ms');
 const rateBtns = RATES.map((r) =>
   h('button', { class: 'seg-btn', type: 'button', dataset: { rate: String(r) }, 'aria-label': `Speed ${r}×`, onclick: () => setRate(r) }, `${r}×`),
 );
 const filterBtns = FILTERS.map((f) => {
-  const count = h('span', { class: 'seg-count' });
-  const b = h('button', { class: 'seg-btn', type: 'button', role: 'tab', dataset: { filter: f.id }, onclick: () => setFilter(f.id) }, f.label, count);
+  // Two-digit slot: the label doesn't slide as the count goes 9 → 10.
+  const count = numSlot(2);
+  count.el.classList.add('seg-count', 'num-center');
+  const b = h('button', { class: 'seg-btn', type: 'button', role: 'tab', dataset: { filter: f.id }, onclick: () => setFilter(f.id) }, f.label, count.el);
   return { b, count, id: f.id };
 });
 const noopEl = h('div', { class: 'noop-note', hidden: true });
 
 const listRoot = h('div', { class: 'list' });
+const detailRoot = h('div', { class: 'detail', hidden: true });
+// Messages sit inside the list's scroll area, under the filter bar, so
+// neither the bar nor the list box moves when one comes or goes.
+const stateRoot = h('div', { class: 'state' });
 const listView = h(
   'div',
   { class: 'list-view' },
   h('div', { class: 'list-bar' }, h('div', { class: 'seg seg-fill', role: 'tablist', 'aria-label': 'Show' }, ...filterBtns.map((f) => f.b))),
   listRoot,
 );
-const detailRoot = h('div', { class: 'detail', hidden: true });
-const stateRoot = h('div', { class: 'state' });
 
 app.append(
-  h('header', { class: 'top' }, hostEl, gsapEl, themeBtn),
+  h('header', { class: 'top' }, statusEl, hostEl, gsapEl, themeBtn),
   h(
     'section',
     { class: 'transport' },
@@ -144,13 +163,12 @@ app.append(
       'div',
       { class: 'transport-row' },
       playBtn,
-      statusEl,
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Playback rate' }, ...rateBtns),
       restartBtn,
     ),
     h('div', { class: 'transport-row timeline-row' }, scrub, timeEl),
   ),
-  h('main', { class: 'body' }, stateRoot, listView, detailRoot),
+  h('main', { class: 'body' }, listView, detailRoot),
 );
 setupTheme(themeBtn);
 
@@ -165,6 +183,7 @@ const list = createList(listRoot, {
     render();
   },
 });
+listRoot.prepend(stateRoot);
 const detail = createDetail(detailRoot, {
   onBack: () => void open(null),
   onScrub: (id, t) => void call('scrubOne', id, t).then(poll),
@@ -249,7 +268,7 @@ async function poll() {
   } finally {
     inFlight = false;
   }
-  render();
+  render(true);
 }
 
 async function togglePlay() {
@@ -265,6 +284,7 @@ async function setRate(r: number) {
 
 function setFilter(f: StatusFilter) {
   filter = f;
+  reorder = true;
   listRoot.scrollTop = 0;
   render();
 }
@@ -303,7 +323,7 @@ scrub.addEventListener('input', () => {
   const first = pendingScrub == null;
   pendingScrub = Number(scrub.value);
   app.classList.add('is-scrubbing');
-  timeEl.textContent = `${pendingScrub} / ${scrub.max} ms`;
+  setTime(pendingScrub, Number(scrub.max));
   if (first) requestAnimationFrame(flushScrub);
 });
 playBtn.addEventListener('click', togglePlay);
@@ -333,7 +353,11 @@ function stateMessage(title: string, body: string, action?: HTMLElement) {
   if (action) stateRoot.append(action);
 }
 
+let stateSig = '';
 function renderState(shownCount: number, endedCount: number) {
+  const sig = `${status}|${errorText}|${host}|${!!snap}|${!!selectedId}|${shownCount === 0}|${snap?.jsDriven.length === 0}|${filter}|${endedCount}`;
+  if (sig === stateSig) return;
+  stateSig = sig;
   stateRoot.replaceChildren();
   if (status === 'restricted') {
     stateMessage('Can’t inspect this page', 'Chrome doesn’t let extensions run on browser pages or the Web Store. Open a regular site.');
@@ -368,86 +392,133 @@ function hostOf(url: string) {
   }
 }
 
-function render() {
+/** Transport readout. `cur` null = live: only the length shows, the slot keeps its width. */
+function setTime(cur: number | null, end: number) {
+  const digits = String(Math.round(end)).length;
+  timeCur.digits(digits);
+  timeEnd.digits(digits);
+  timeCur.set(cur == null ? '' : String(Math.round(cur)));
+  timeEnd.set(String(Math.round(end)));
+  timeEl.classList.toggle('is-idle', cur == null);
+}
+
+function setStatus(state: 'live' | 'paused' | 'none') {
+  if (statusEl.dataset.state === state) return;
+  statusEl.dataset.state = state;
+  const word = state === 'live' ? 'Live' : state === 'paused' ? 'Paused' : '';
+  statusLabel.textContent = word;
+  statusEl.title = state === 'live' ? 'Live: the page is playing' : state === 'paused' ? 'Paused' : '';
+}
+
+let playIcon = '';
+function setPlayIcon(paused: boolean) {
+  const want = paused ? 'play' : 'pause';
+  if (playIcon === want) return;
+  playIcon = want;
+  playBtn.innerHTML = paused ? icons.play : icons.pause;
+  playBtn.setAttribute('aria-label', paused ? 'Play all' : 'Pause all');
+  playBtn.title = paused ? 'Play all (Space)' : 'Pause all (Space)';
+  playBtn.classList.toggle('is-paused', paused);
+}
+
+function setDisabled(els: (HTMLButtonElement | HTMLInputElement)[], disabled: boolean) {
+  for (const el of els) if (el.disabled !== disabled) el.disabled = disabled;
+}
+
+/** `background`: called from a poll rather than a user action. */
+function render(background = false) {
   const ready = status === 'ready' && !!snap;
-  for (const el of [playBtn, restartBtn, scrub, ...rateBtns]) (el as HTMLButtonElement).disabled = !ready;
+  setDisabled([playBtn, restartBtn, scrub, ...rateBtns, ...filterBtns.map((f) => f.b)], !ready);
 
   if (!ready || !snap) {
     renderState(0, 0);
-    listView.hidden = true;
+    list.render({ groups: [], js: [], expanded, paused: false });
+    noopEl.hidden = true;
+    listView.hidden = false;
+    app.classList.remove('has-detail');
     detail.render(null, { siblings: 0, paused: false });
-    statusEl.replaceChildren();
-    timeEl.textContent = '';
+    setStatus('none');
+    setPlayIcon(false);
+    for (const f of filterBtns) f.count.set('');
+    scrub.value = '0';
+    app.classList.add('is-live');
+    setTime(null, 0);
+    timeEl.classList.add('is-empty');
     return;
   }
+  timeEl.classList.remove('is-empty');
 
   host = hostOf(snap.url);
-  hostEl.textContent = host;
-  hostEl.title = snap.url;
-  gsapEl.hidden = !snap.gsapDetected;
+  setText(hostEl, host);
+  if (hostEl.title !== snap.url) hostEl.title = snap.url;
+  if (gsapEl.hidden === snap.gsapDetected) gsapEl.hidden = !snap.gsapDetected;
 
   /* Transport */
   const live = !snap.paused && snap.scrubTime == null;
-  playBtn.innerHTML = snap.paused ? icons.play : icons.pause;
-  playBtn.setAttribute('aria-label', snap.paused ? 'Play all' : 'Pause all');
-  playBtn.title = snap.paused ? 'Play all (Space)' : 'Pause all (Space)';
-  playBtn.classList.toggle('is-paused', snap.paused);
-  statusEl.dataset.state = snap.paused ? 'paused' : 'live';
-  const statusText = snap.paused ? 'Paused' : 'Live';
-  if (statusEl.textContent !== statusText) statusEl.replaceChildren(h('span', { class: 'status-dot' }), statusText);
+  setPlayIcon(snap.paused);
+  setStatus(snap.paused ? 'paused' : 'live');
 
   for (const b of rateBtns) {
     const on = Number(b.dataset.rate) === snap.rate;
     b.classList.toggle('is-on', on);
-    b.setAttribute('aria-pressed', String(on));
+    setAttr(b, 'aria-pressed', String(on));
   }
 
-  scrub.max = String(snap.scrubEnd);
+  const max = String(snap.scrubEnd);
+  if (scrub.max !== max) scrub.max = max;
   if (!draggingGlobal && pendingScrub == null) {
     // While the page plays, the timeline is idle: no moving thumb, no
     // ticking number. The playhead only shows once you pause or scrub.
     app.classList.toggle('is-live', live);
     if (!live) app.classList.remove('is-scrubbing');
     if (live) {
-      scrub.value = '0';
-      timeEl.textContent = `${snap.scrubEnd} ms`;
-      timeEl.title = 'Timeline length. Drag to pause and scrub.';
+      if (scrub.value !== '0') scrub.value = '0';
+      setTime(null, snap.scrubEnd);
+      setAttr(timeEl, 'title', 'Timeline length. Drag to pause and scrub.');
     } else {
       const ref = snap.scrubTime ?? referenceTime(snap);
-      scrub.value = String(Math.min(snap.scrubEnd, Math.max(0, ref)));
-      timeEl.textContent = `${Math.round(Number(scrub.value))} / ${snap.scrubEnd} ms`;
-      timeEl.title = '';
+      const v = String(Math.round(Math.min(snap.scrubEnd, Math.max(0, ref))));
+      if (scrub.value !== v) scrub.value = v;
+      setTime(Number(v), snap.scrubEnd);
+      setAttr(timeEl, 'title', '');
     }
   }
 
   /* List */
-  const { shown, counts, hiddenNoop } = filterAnimations(snap.animations, filter, showNoop);
+  const lingering = lingeringIds(snap.animations, endedAt, performance.now(), LINGER_MS, !lingerPrimed);
+  lingerPrimed = true;
+  const { shown, counts, hiddenNoop } = filterAnimations(snap.animations, filter, showNoop, lingering);
   for (const f of filterBtns) {
     const on = f.id === filter;
     f.b.classList.toggle('is-on', on);
-    f.b.setAttribute('aria-selected', String(on));
-    const n = String(counts[f.id]);
-    if (f.count.textContent !== n) f.count.textContent = n;
+    setAttr(f.b, 'aria-selected', String(on));
+    f.count.set(String(counts[f.id]));
+    f.count.digits(Math.max(2, String(counts[f.id]).length));
   }
-  const groups = groupAnimations(shown);
-  list.render({ groups, js: filter === 'ended' ? [] : snap.jsDriven, expanded, paused: snap.paused });
-  noopEl.hidden = hiddenNoop === 0 && !showNoop;
+  const sel = snap.animations.find((a) => a.spec.id === selectedId) ?? null;
+  if (selectedId && !sel) selectedId = null;
+  // The list is hidden behind the detail view: don't patch it every poll.
+  if (!sel) {
+    const groups = groupAnimations(shown);
+    list.render({ groups, js: filter === 'ended' ? [] : snap.jsDriven, expanded, paused: snap.paused, background, reorder });
+    reorder = false;
+  }
+  const noopHidden = hiddenNoop === 0 && !showNoop;
+  if (noopEl.hidden !== noopHidden) noopEl.hidden = noopHidden;
   const noopSig = `${showNoop}:${hiddenNoop}`;
   if (noopEl.dataset.sig !== noopSig) {
     noopEl.dataset.sig = noopSig;
     noopEl.replaceChildren(
       showNoop ? 'Showing zero-length animations. ' : `${hiddenNoop} zero-length animation${hiddenNoop === 1 ? '' : 's'} hidden. `,
-      h('button', { class: 'link', type: 'button', onclick: () => ((showNoop = !showNoop), render()) }, showNoop ? 'Hide' : 'Show'),
+      h('button', { class: 'link', type: 'button', onclick: () => ((showNoop = !showNoop), (reorder = true), render()) }, showNoop ? 'Hide' : 'Show'),
     );
   }
-  if (listRoot.lastElementChild !== noopEl) listRoot.append(noopEl);
+  if (noopEl.nextElementSibling !== list.spacer) listRoot.insertBefore(noopEl, list.spacer);
 
   /* Detail */
-  const sel = snap.animations.find((a) => a.spec.id === selectedId) ?? null;
-  if (selectedId && !sel) selectedId = null;
   const siblings = sel ? snap.animations.filter((a) => a !== sel && groupKey(a.spec) === groupKey(sel.spec)).length : 0;
   detail.render(sel, { siblings, paused: snap.paused });
-  listView.hidden = !!sel;
+  if (listView.hidden !== !!sel) listView.hidden = !!sel;
   app.classList.toggle('has-detail', !!sel);
   renderState(shown.length, counts.ended);
 }
@@ -471,9 +542,12 @@ async function attach(tabId: number, url?: string) {
   snap = null;
   selectedId = null;
   expanded.clear();
+  endedAt.clear();
+  lingerPrimed = false;
+  reorder = true;
   resetCache();
   host = url ? hostOf(url) : '';
-  hostEl.textContent = host;
+  setText(hostEl, host);
   status = isRestrictedUrl(url) ? 'restricted' : 'loading';
   sendAttach(tabId);
   render();
@@ -500,9 +574,12 @@ async function init() {
       snap = null;
       selectedId = null;
       expanded.clear();
+      endedAt.clear();
+      lingerPrimed = false;
+      reorder = true;
       resetCache();
       host = hostOf(info.url);
-      hostEl.textContent = host;
+      setText(hostEl, host);
       status = isRestrictedUrl(tab.url) ? 'restricted' : 'loading';
       render();
     }
