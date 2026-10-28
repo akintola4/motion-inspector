@@ -6,7 +6,39 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+Nothing moves unless you moved it. Measured with `pnpm audit:layout`;
+findings in `docs/layout-audit.md`.
+
+### Changed
+
+- **Live / paused is a dot before the site name** in the header (green
+  live, amber paused). The word is still there for screen readers and on
+  hover. The transport row is now play, speed, restart, with restart in
+  the theme toggle's column.
+- **Just-ended animations stay under Live for 3 s**, faded and marked
+  Ended, so short transitions that re-trigger don't blink rows in and out.
+  Counts stay honest.
+- **The list holds still while you point at it.** Polls patch rows in
+  place; they don't remove or reorder them until the pointer leaves.
+  Rows keep their order between polls, and a re-triggered transition
+  keeps its row.
+
+### Fixed
+
+- Pause / play no longer resizes the timeline (`1800 ms` vs
+  `626 / 1800 ms`); the per-animation readout no longer nudges its slider
+  every poll as digits come and go.
+- Switching export tabs no longer changes the code block's height or
+  moves the Keyframes section.
+- `Copy` → `Copied` no longer widens the button.
+- The Ended filter's empty message no longer pushes the filter bar down.
+- Collapsing a group near the end of a scrolled list keeps the group
+  under the pointer.
+- Geist Mono is preloaded, so the first drill-in doesn't reflow the code.
+- Theme changes swap colours at once instead of tweening each control.
+- Each poll only writes what changed: idle polling went from ~4.5 replaced
+  nodes and 17–85 attribute writes per poll to ~1 and ~3, and the list is
+  no longer patched while hidden behind the detail view.
 
 ## [0.2.0] — 2026-10-28
 

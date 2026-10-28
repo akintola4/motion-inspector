@@ -33,7 +33,7 @@ Needs Chrome 116 or newer (side panel API). Edge, Brave, Arc and other Chromium 
 ## How to use
 
 - **Open the panel** on the tab you want to inspect. It follows the active tab and re-attaches after reloads.
-- **Pause / play** everything with the button or `Space`. GSAP's global timeline pauses with it. The dot next to the button says whether the page is **Live** or **Paused**.
+- **Pause / play** everything with the button or `Space`. GSAP's global timeline pauses with it. The dot before the site name in the header says whether the page is **Live** (green) or **Paused** (amber).
 - **Scrub** with the timeline. While the page is live the timeline sits idle (dashed, no playhead); grab it and everything pauses and moves to the same time from its start, the model DevTools uses.
 - **Slow it down** with 0.1×, 0.25× or 0.5×. The rate also applies to animations that start later.
 - **The list** shows what's running now (**Live**); **Ended** and **All** are one click away. Identical animations on many elements fold into one row (`pulse ×12`) that expands to the elements, with their size so you can tell them apart. Zero-length animations are hidden behind a note. Rows name the element the way you would (`button.chip “Design”`, `div in article.card`), not with a selector path. Hover a row to outline its element on the page; `↑`/`↓` move between rows, `→`/`←` open and close a group, `Enter` opens.
