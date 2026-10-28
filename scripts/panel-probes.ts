@@ -55,12 +55,28 @@ export interface Alignment {
   dotVsX: number;
   /** Back chevron centre minus its label's cap-height centre (detail view only). */
   chevronVsCap: number | null;
-  /** Centre-line offsets in the transport row, relative to the play button. */
+  /** Centre-line offsets in the transport row, relative to the play button (current design names). */
   segVsPlay: number;
   restartVsPlay: number;
+  /** Largest centre-line offset of any transport part on the play button's row. */
+  rowVsPlay: number;
+  /** Which parts share the play row, e.g. "speed restart step-back". */
+  rowParts: string;
   /** Left edges: status dot box vs play button. Right edges: theme vs restart. */
   dotLeftVsPlayLeft: number;
   themeRightVsRestartRight: number;
+  /** Leftmost transport control vs the dot box; rightmost vs the theme toggle. */
+  startVsDot: number;
+  endVsTheme: number;
+  /** The timeline row's outer edges vs the dot box (left) and theme toggle (right). */
+  timelineLeftVsDot: number;
+  timelineRightVsTheme: number;
+  /** Global scrubber hit-area height (px). */
+  scrubberHeight: number;
+  /** Detail view: scrubber row edges vs the easing row above it (null in the list). */
+  detailScrubLeft: number | null;
+  detailScrubRight: number | null;
+  detailScrubberHeight: number | null;
   /** Sanity: rendered content-area height minus canvas ascent + descent (≈0 if the metrics agree). */
   metricCheck: number;
 }
@@ -101,17 +117,62 @@ export async function measureAlignment(page: Page): Promise<Alignment> {
       chevronVsCap = mid(back.querySelector('svg')!.getBoundingClientRect()) - label.cap;
     }
 
-    const play = rect('button.play');
     const r3 = (n: number) => Math.round(n * 1000) / 1000;
+    const play = rect('.transport [data-part=play]');
+    const restart = rect('.transport [data-part=restart]');
+    const speed = rect('.transport [data-part=speed]');
+    const status = rect('.top .status');
+    const theme = rect('.top > .icon-btn');
+
+    // Parts whose box overlaps the play button vertically are on its row.
+    const parts = [...document.querySelectorAll<HTMLElement>('.transport [data-part]')];
+    const onRow = parts.filter((el) => {
+      const r = el.getBoundingClientRect();
+      return el.dataset.part !== 'play' && r.bottom > play.top && r.top < play.bottom;
+    });
+    const rowVsPlay = Math.max(0, ...onRow.map((el) => Math.abs(mid(el.getBoundingClientRect()) - mid(play))));
+
+    // The timeline row: the scrubber's row (its parent unless that's the section).
+    const scrubber = document.querySelector<HTMLElement>('.transport [data-part=scrubber]')!;
+    const row = scrubber.parentElement!.matches('.transport') ? scrubber : scrubber.parentElement!;
+    const rowRects = [row, ...row.querySelectorAll<HTMLElement>('[data-part]')].map((el) => el.getBoundingClientRect());
+    const left = Math.min(...rowRects.map((r) => r.left));
+    const right = Math.max(...rowRects.map((r) => r.right));
+
+    let detailScrubLeft: number | null = null;
+    let detailScrubRight: number | null = null;
+    let detailScrubberHeight: number | null = null;
+    const one = document.querySelector<HTMLElement>('.detail .scrub-one');
+    if (one && one.offsetParent) {
+      const ease = rect('.detail .ease-row');
+      const ds = one.querySelector<HTMLElement>('[data-part=scrubber]')!.getBoundingClientRect();
+      const o = one.getBoundingClientRect();
+      detailScrubLeft = r3(Math.min(o.left, ds.left) - ease.left);
+      detailScrubRight = r3(Math.max(o.right, ds.right) - ease.right);
+      detailScrubberHeight = r3(ds.height);
+    }
+
+    const start = rect('.transport [data-align=start]');
+    const end = rect('.transport [data-align=end]');
     return {
       dotVsCap: r3(dot - t.cap),
       dotVsX: r3(dot - t.x),
       chevronVsCap: chevronVsCap == null ? null : r3(chevronVsCap),
-      segVsPlay: r3(mid(rect('.transport .seg')) - mid(play)),
-      restartVsPlay: r3(mid(rect('.transport-row > .icon-btn')) - mid(play)),
-      dotLeftVsPlayLeft: r3(rect('.top .status').left - play.left),
+      segVsPlay: r3(mid(speed) - mid(play)),
+      restartVsPlay: r3(mid(restart) - mid(play)),
+      rowVsPlay: r3(rowVsPlay),
+      rowParts: onRow.map((el) => el.dataset.part).join(' '),
+      dotLeftVsPlayLeft: r3(status.left - play.left),
+      themeRightVsRestartRight: r3(theme.right - restart.right),
+      startVsDot: r3(start.left - status.left),
+      endVsTheme: r3(end.right - theme.right),
+      timelineLeftVsDot: r3(left - status.left),
+      timelineRightVsTheme: r3(right - theme.right),
+      scrubberHeight: r3(scrubber.getBoundingClientRect().height),
+      detailScrubLeft,
+      detailScrubRight,
+      detailScrubberHeight,
       metricCheck: r3(t.contentBottom - t.contentTop - t.ascent - t.descent),
-      themeRightVsRestartRight: r3(rect('.top .icon-btn').right - rect('.transport-row > .icon-btn').right),
     };
   });
 }
