@@ -11,3 +11,7 @@ public/fonts/
 
 # Playwright profile used by scripts/e2e.ts
 .e2e-profile/
+
+# Output of scripts/layout-audit.ts
+.audit-profile/
+.layout-audit/
