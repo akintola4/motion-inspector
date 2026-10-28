@@ -1,6 +1,6 @@
 import type { AnimationEntry, AnimationSpec } from '../../lib/types';
-import { iterationCurve, iterationProgress, scrubLength } from '../../lib/timing';
-import { fmtTime, summarizeEasing } from '../../lib/export/shared';
+import { iterationCurve, iterationProgress, oneScrub, type OneScrub } from '../../lib/timing';
+import { summarizeEasing } from '../../lib/export/shared';
 import { toCss, toGsap, toLinearExport, toMotion } from '../../lib/export';
 import { camelToKebab } from '../../lib/css-props';
 import { tidyEasing } from '../../lib/easing';
@@ -8,7 +8,7 @@ import { clear, h } from './h';
 import { bigCurve, type BigCurve } from './curve';
 import { icons } from './icons';
 import { highlight } from './code';
-import { KIND_LABEL } from './list';
+import { KIND_LABEL, fmtDur, stateText } from './list';
 
 export type ExportTab = 'css' | 'linear' | 'motion' | 'gsap';
 
@@ -20,66 +20,127 @@ const TABS: { id: ExportTab; label: string; fn: (s: AnimationSpec) => string }[]
 ];
 
 export interface DetailCallbacks {
-  onClose(): void;
+  onBack(): void;
   onScrub(id: string, t: number): void;
   getTab(): ExportTab;
   setTab(tab: ExportTab): void;
+}
+
+export interface DetailContext {
+  /** Other elements running the identical animation. */
+  siblings: number;
+  paused: boolean;
+}
+
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Clipboard API can be blocked when the panel isn't focused.
+    const ta = h('textarea', {});
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+}
+
+/** A copy button that confirms for a moment, then resets. */
+function copyButton(getText: () => string, label: string, withText: boolean) {
+  const btn = h('button', { class: withText ? 'btn btn-ghost copy' : 'icon-btn copy', type: 'button', 'aria-label': label, title: label });
+  const show = (done: boolean) => {
+    btn.innerHTML = done ? icons.check : icons.copy;
+    if (withText) btn.append(h('span', {}, done ? 'Copied' : 'Copy'));
+    btn.classList.toggle('is-done', done);
+  };
+  show(false);
+  let timer = 0;
+  btn.addEventListener('click', async () => {
+    await copyText(getText());
+    show(true);
+    clearTimeout(timer);
+    timer = window.setTimeout(() => show(false), 1200);
+  });
+  return btn;
 }
 
 export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
   let currentId: string | null = null;
   let curve: BigCurve | null = null;
   let slider: HTMLInputElement | null = null;
-  let timeOut: HTMLElement | null = null;
+  let readout: HTMLElement | null = null;
+  let stateEl: HTMLElement | null = null;
+  let siblingsEl: HTMLElement | null = null;
+  let scrollEl: HTMLElement | null = null;
   let dragging = false;
   let spec: AnimationSpec | null = null;
+  let model: OneScrub | null = null;
+
+  /* Playhead interpolation between polls, so the dot glides instead of
+     jumping every 250 ms. Off under reduced motion. */
+  let sample: { t: number; at: number; rate: number; running: boolean } | null = null;
+  let raf = 0;
+  function tick() {
+    raf = 0;
+    if (!spec || !sample || !sample.running || dragging || root.hidden) return;
+    const elapsed = Math.min(600, performance.now() - sample.at);
+    const t = sample.t + elapsed * sample.rate;
+    curve?.setProgress(iterationProgress(spec, t));
+    if (slider) slider.value = String(oneScrub(spec, t).value);
+    raf = requestAnimationFrame(tick);
+  }
 
   function build(entry: AnimationEntry) {
     spec = entry.spec;
     const s = spec;
     clear(root);
-    root.scrollTop = 0;
     const ease = summarizeEasing(s);
-    const curveFn = iterationCurve(s);
-    curve = bigCurve(curveFn, s.keyframes.map((k) => k.offset));
+    curve = bigCurve(iterationCurve(s), s.keyframes.map((k) => k.offset));
 
-    const length = Math.max(1, scrubLength(s));
-    slider = h('input', {
-      type: 'range',
-      min: '0',
-      max: String(Math.round(length)),
-      step: '1',
-      class: 'slider',
-      'aria-label': 'Scrub this animation',
+    slider = h('input', { type: 'range', min: '0', max: '1', step: '1', class: 'slider', 'aria-label': 'Scrub this animation' });
+    let dragModel: OneScrub | null = null;
+    slider.addEventListener('pointerdown', () => {
+      dragging = true;
+      dragModel = model;
     });
-    slider.addEventListener('pointerdown', () => (dragging = true));
     slider.addEventListener('pointerup', () => (dragging = false));
     slider.addEventListener('input', () => {
-      cb.onScrub(s.id, Number(slider!.value));
-      if (timeOut) timeOut.textContent = `${Math.round(Number(slider!.value))} / ${Math.round(length)} ms`;
+      const m = dragModel ?? model;
+      if (!m) return;
+      const v = Number(slider!.value);
+      cb.onScrub(s.id, m.toTime(v));
+      if (readout) readout.textContent = m.label.replace(/^\d+/, String(Math.round(v)));
     });
-    timeOut = h('span', { class: 'time mono' });
+    slider.addEventListener('change', () => {
+      dragging = false;
+      dragModel = null;
+    });
+    readout = h('span', { class: 'time' });
+    stateEl = h('span', { class: 'row-state' });
+    siblingsEl = h('p', { class: 'note' });
 
     const iterations = s.iterations === 'infinite' ? '∞' : String(s.iterations);
     const facts: [string, string][] = [
-      ['Duration', fmtTime(s.duration)],
-      ['Delay', fmtTime(s.delay)],
+      ['Duration', fmtDur(s.duration)],
+      ['Delay', fmtDur(s.delay)],
       ['Iterations', iterations],
       ['Direction', s.direction],
       ['Fill', s.fill],
-      ['End delay', fmtTime(s.endDelay)],
+      ['End delay', fmtDur(s.endDelay)],
     ];
 
     const codeEl = h('code', {});
-    const pre = h('pre', { class: 'code' }, codeEl);
-    const copyBtn = h('button', { class: 'btn btn-ghost copy', 'aria-label': 'Copy code', html: icons.copy });
-    const copyLabel = h('span', {}, 'Copy');
-    copyBtn.append(copyLabel);
+    const pre = h('pre', { class: 'code', tabindex: '0' }, codeEl);
+    let code = '';
     const tabButtons = TABS.map((t) =>
       h(
         'button',
         {
           class: 'seg-btn',
+          type: 'button',
           role: 'tab',
           dataset: { tab: t.id },
           onclick: () => {
@@ -90,7 +151,6 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
         t.label,
       ),
     );
-    let code = '';
     function showTab() {
       const tab = cb.getTab();
       for (const b of tabButtons) {
@@ -107,121 +167,144 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
       codeEl.innerHTML = highlight(code);
       pre.scrollTop = 0;
     }
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(code);
-      } catch {
-        // Clipboard API can be blocked when the panel isn't focused.
-        const ta = h('textarea', {});
-        ta.value = code;
-        document.body.append(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-      }
-      copyBtn.innerHTML = icons.check;
-      copyBtn.append(h('span', {}, 'Copied'));
-      copyBtn.classList.add('is-done');
-      setTimeout(() => {
-        copyBtn.innerHTML = icons.copy;
-        copyBtn.append(h('span', {}, 'Copy'));
-        copyBtn.classList.remove('is-done');
-      }, 1200);
-    });
 
     const easeNote =
       ease.source === 'per-keyframe'
-        ? 'Easing per keyframe — curve shows the whole iteration'
+        ? 'Easing per keyframe · curve shows the whole iteration'
         : ease.source === 'keyframes'
-          ? 'Easing set on keyframes'
+          ? 'Easing on keyframes'
           : s.kind === 'gsap'
             ? `GSAP ease “${s.gsap?.easeName ?? ''}”`
-            : 'Effect easing';
+            : 'Easing';
 
-    root.append(
+    const back = h(
+      'button',
+      { class: 'back', type: 'button', 'aria-label': 'Back to animations', title: 'Back (Esc)', onclick: cb.onBack },
+      h('span', { html: icons.back }),
+      'Animations',
+    );
+
+    scrollEl = h(
+      'div',
+      { class: 'detail-scroll' },
       h(
-        'div',
+        'header',
         { class: 'detail-head' },
+        h('h2', {}, s.name),
+        h('p', { class: 'detail-label' }, s.label, stateEl),
+      ),
+      h(
+        'section',
+        { class: 'card curve-card' },
+        curve.root,
         h(
           'div',
-          { class: 'detail-title' },
-          h('span', { class: 'kind', dataset: { kind: s.kind } }, KIND_LABEL[s.kind]),
-          h('h2', {}, s.name),
-          h('div', { class: 'detail-sel mono' }, s.selector),
+          { class: 'ease-row' },
+          h('span', { class: 'label' }, easeNote),
+          h('code', { class: 'ease-text', title: tidyEasing(ease.css) }, ease.source === 'per-keyframe' ? 'per keyframe' : tidyEasing(ease.css)),
         ),
-        h('button', { class: 'icon-btn', 'aria-label': 'Close details', html: icons.close, onclick: cb.onClose }),
+        h('div', { class: 'scrub-one' }, slider, readout),
+      ),
+      h('dl', { class: 'facts' }, ...facts.map(([k, v]) => h('div', { class: 'fact' }, h('dt', {}, k), h('dd', {}, v)))),
+      h(
+        'section',
+        { class: 'section' },
+        h('div', { class: 'section-head' }, h('h3', { class: 'label' }, 'Target'), copyButton(() => s.selector, 'Copy selector', false)),
+        h('code', { class: 'selector' }, s.selector),
+        siblingsEl,
       ),
       h(
         'section',
-        { class: 'card' },
-        curve.root,
-        h('div', { class: 'ease-note' }, easeNote),
-        h('div', { class: 'ease-text mono', title: tidyEasing(ease.css) }, ease.source === 'per-keyframe' ? 'per keyframe' : tidyEasing(ease.css)),
-      ),
-      h('section', { class: 'scrub-one' }, slider, timeOut),
-      h(
-        'dl',
-        { class: 'facts' },
-        ...facts.map(([k, v]) => h('div', { class: 'fact' }, h('dt', {}, k), h('dd', { class: 'mono' }, v))),
-      ),
-      h(
-        'section',
-        { class: 'export' },
-        h('div', { class: 'export-bar' }, h('div', { class: 'seg', role: 'tablist', 'aria-label': 'Export format' }, ...tabButtons), copyBtn),
+        { class: 'section export' },
+        h('div', { class: 'section-head' }, h('h3', { class: 'label' }, 'Export')),
+        h(
+          'div',
+          { class: 'export-bar' },
+          h('div', { class: 'seg', role: 'tablist', 'aria-label': 'Export format' }, ...tabButtons),
+          copyButton(() => code, 'Copy code', true),
+        ),
         pre,
       ),
       h(
         'section',
-        { class: 'keyframes' },
-        h('div', { class: 'section-label' }, `Keyframes · ${s.properties.map(camelToKebab).join(', ')}`),
-        ...s.keyframes.map((k, i) =>
-          h(
-            'div',
-            { class: 'kf' },
-            h('span', { class: 'kf-offset mono' }, `${Number((k.offset * 100).toFixed(1))}%`),
+        { class: 'section keyframes' },
+        h('div', { class: 'section-head' }, h('h3', { class: 'label' }, 'Keyframes'), h('span', { class: 'section-note' }, s.properties.map(camelToKebab).join(', '))),
+        h(
+          'div',
+          { class: 'kf-table' },
+          ...s.keyframes.map((k, i) =>
             h(
-              'span',
-              { class: 'kf-props mono' },
-              ...Object.entries(k.props).map(([p, v]) => h('span', {}, h('span', { class: 'muted' }, `${camelToKebab(p)}: `), v)),
-              i < s.keyframes.length - 1 && k.easing !== 'linear'
-                ? h('span', { class: 'kf-ease' }, h('span', { class: 'muted' }, 'easing: '), tidyEasing(k.easing))
-                : null,
+              'div',
+              { class: 'kf' },
+              h('span', { class: 'kf-offset' }, `${Number((k.offset * 100).toFixed(1))}%`),
+              h(
+                'span',
+                { class: 'kf-props' },
+                ...Object.entries(k.props).map(([p, v]) => h('span', {}, h('span', { class: 'kf-prop' }, `${camelToKebab(p)}: `), v)),
+                i < s.keyframes.length - 1 && k.easing !== 'linear'
+                  ? h('span', { class: 'kf-ease' }, h('span', { class: 'kf-prop' }, 'easing: '), tidyEasing(k.easing))
+                  : null,
+              ),
             ),
           ),
         ),
       ),
     );
+
+    root.append(
+      h('div', { class: 'detail-bar' }, back, h('span', { class: 'kind', dataset: { kind: s.kind } }, KIND_LABEL[s.kind])),
+      scrollEl,
+    );
     showTab();
   }
 
-  function render(entry: AnimationEntry | null) {
+  function render(entry: AnimationEntry | null, ctx: DetailContext) {
     if (!entry) {
       currentId = null;
+      spec = null;
+      sample = null;
       root.hidden = true;
       clear(root);
       return;
     }
     root.hidden = false;
-    if (entry.spec.id !== currentId) {
+    const fresh = entry.spec.id !== currentId;
+    if (fresh) {
       currentId = entry.spec.id;
       build(entry);
     }
     const { live } = entry;
-    curve?.setProgress(iterationProgress(entry.spec, live.currentTime));
-    const length = Math.round(Math.max(1, scrubLength(entry.spec)));
+    const s = entry.spec;
     const disabled = live.ended || live.scrollLinked;
-    if (slider) {
-      slider.disabled = disabled;
-      if (!dragging && live.currentTime != null) slider.value = String(Math.min(length, Math.max(0, live.currentTime)));
+    if (stateEl) {
+      const text = stateText(entry, ctx.paused);
+      stateEl.textContent = text;
+      stateEl.hidden = !text;
     }
-    if (timeOut && !dragging) {
-      timeOut.textContent = disabled
-        ? live.scrollLinked
-          ? 'scroll-linked'
-          : 'ended'
-        : `${live.currentTime == null ? '–' : Math.round(live.currentTime)} / ${length} ms`;
+    if (siblingsEl) {
+      siblingsEl.textContent = ctx.siblings ? `Same animation on ${ctx.siblings} other element${ctx.siblings === 1 ? '' : 's'}.` : '';
+      siblingsEl.hidden = !ctx.siblings;
     }
+    if (!dragging) {
+      model = oneScrub(s, live.currentTime);
+      if (slider) {
+        slider.max = String(Math.round(model.max));
+        slider.value = String(Math.round(model.value));
+        slider.disabled = disabled;
+      }
+      curve?.setProgress(iterationProgress(s, live.currentTime));
+      if (readout) readout.textContent = live.scrollLinked ? 'Scroll-linked' : live.ended ? 'Ended' : model.label;
+    }
+    const running = live.playState === 'running' && !disabled && live.currentTime != null;
+    sample = running ? { t: live.currentTime!, at: performance.now(), rate: live.playbackRate, running } : null;
+    if (running && !reducedMotion.matches && !raf) raf = requestAnimationFrame(tick);
+    if (fresh && scrollEl) scrollEl.scrollTop = 0;
   }
 
-  return { render, get spec() { return spec; } };
+  return {
+    render,
+    get id() {
+      return currentId;
+    },
+  };
 }
