@@ -52,3 +52,33 @@ export function h<T extends keyof HTMLElementTagNameMap>(
 export function clear(el: Element) {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
+
+/** Write text only when it changed: no text-node churn or style work per poll. */
+export function setText(el: Element, text: string) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+/** setAttribute only when the value changed (setAttribute always queues a mutation). */
+export function setAttr(el: Element, name: string, value: string) {
+  if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+}
+
+/**
+ * A number that never changes width while it ticks: a hidden ghost of
+ * `digits` eights (tabular figures, so every digit is the same width) holds
+ * the box open and the real value sits right-aligned on top of it.
+ */
+export function numSlot(digits = 1) {
+  const value = h('span', { class: 'num-value' });
+  const el = h('span', { class: 'num', 'data-ghost': '8'.repeat(digits) }, value);
+  return {
+    el,
+    value,
+    set(text: string) {
+      setText(value, text);
+    },
+    digits(n: number) {
+      setAttr(el, 'data-ghost', '8'.repeat(Math.max(1, n)));
+    },
+  };
+}
