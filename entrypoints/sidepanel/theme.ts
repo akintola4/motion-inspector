@@ -21,7 +21,13 @@ export function setupTheme(button: HTMLButtonElement) {
 
   const apply = () => {
     const resolved = pref === 'system' ? (media.matches ? 'dark' : 'light') : pref;
-    document.body.dataset.theme = resolved;
+    if (document.body.dataset.theme !== resolved) {
+      // Swap every colour at once instead of tweening each button's colour.
+      const root = document.documentElement;
+      root.classList.add('no-transitions');
+      document.body.dataset.theme = resolved;
+      requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-transitions')));
+    }
     button.innerHTML = pref === 'system' ? icons.system : pref === 'light' ? icons.sun : icons.moon;
     const label = `Theme: ${pref}`;
     button.setAttribute('aria-label', label);
