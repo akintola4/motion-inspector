@@ -446,6 +446,11 @@ button:not(:disabled):active { transform: scale(0.97); }
   border-bottom: 1px solid var(--border);
   flex: none;
 }
+/* Inline SVGs sit on the text baseline; make them boxes so flex centres them. */
+button svg { display: block; flex: none; }
+.back > span { display: flex; }
+/* Optical: centre the chevron on the label's cap height, not its line box. */
+.back svg { transform: translateY(-1px); }
 .back {
   display: inline-flex;
   align-items: center;
