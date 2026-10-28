@@ -3,6 +3,7 @@ import { iterationCurve, iterationProgress, scrubLength } from '../../lib/timing
 import { fmtTime, summarizeEasing } from '../../lib/export/shared';
 import { toCss, toGsap, toLinearExport, toMotion } from '../../lib/export';
 import { camelToKebab } from '../../lib/css-props';
+import { tidyEasing } from '../../lib/easing';
 import { clear, h } from './h';
 import { bigCurve, type BigCurve } from './curve';
 import { icons } from './icons';
@@ -37,6 +38,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
     spec = entry.spec;
     const s = spec;
     clear(root);
+    root.scrollTop = 0;
     const ease = summarizeEasing(s);
     const curveFn = iterationCurve(s);
     curve = bigCurve(curveFn, s.keyframes.map((k) => k.offset));
@@ -154,7 +156,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
         { class: 'card' },
         curve.root,
         h('div', { class: 'ease-note' }, easeNote),
-        h('div', { class: 'ease-text mono', title: ease.css }, ease.source === 'per-keyframe' ? 'per keyframe' : ease.css),
+        h('div', { class: 'ease-text mono', title: tidyEasing(ease.css) }, ease.source === 'per-keyframe' ? 'per keyframe' : tidyEasing(ease.css)),
       ),
       h('section', { class: 'scrub-one' }, slider, timeOut),
       h(
@@ -182,7 +184,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
               { class: 'kf-props mono' },
               ...Object.entries(k.props).map(([p, v]) => h('span', {}, h('span', { class: 'muted' }, `${camelToKebab(p)}: `), v)),
               i < s.keyframes.length - 1 && k.easing !== 'linear'
-                ? h('span', { class: 'kf-ease' }, h('span', { class: 'muted' }, 'easing: '), k.easing)
+                ? h('span', { class: 'kf-ease' }, h('span', { class: 'muted' }, 'easing: '), tidyEasing(k.easing))
                 : null,
             ),
           ),
