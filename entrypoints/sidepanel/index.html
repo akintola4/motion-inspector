@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Motion Inspector</title>
     <link rel="icon" href="/icon/32.png" />
+    <!-- Load both faces up front: Geist Mono is first used on drill-in, and
+         swapping it in then nudged the export block by a pixel. -->
+    <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <meta name="manifest.default_path" content="sidepanel.html" />
   </head>
   <body>
