@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.output/
+.wxt/
+*.log
+.DS_Store
+.claude/
+
+# Geist fonts are copied at install time (postinstall script)
+public/fonts/
+
+# Playwright profile used by scripts/e2e.ts
+.e2e-profile/

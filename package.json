@@ -1,0 +1,36 @@
+{
+  "name": "motion-inspector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension to pause, scrub and export the animations on any page",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "test": "vitest run",
+    "fixtures": "tsx scripts/serve-fixtures.ts",
+    "e2e": "wxt build && tsx scripts/e2e.ts",
+    "postinstall": "wxt prepare && node scripts/extract-geist-assets.mjs"
+  },
+  "dependencies": {
+    "geist": "^1.8.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "gsap": "^3.15.0",
+    "happy-dom": "^21.0.4",
+    "motion": "^14.7.1",
+    "playwright": "^1.64.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wxt": "^0.21.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
