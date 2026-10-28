@@ -4,11 +4,12 @@ import { summarizeEasing } from '../../lib/export/shared';
 import { toCss, toGsap, toLinearExport, toMotion } from '../../lib/export';
 import { camelToKebab } from '../../lib/css-props';
 import { tidyEasing } from '../../lib/easing';
-import { clear, h, numSlot, setAttr, setText } from './h';
+import { clear, h, setAttr, setText } from './h';
 import { bigCurve, type BigCurve } from './curve';
 import { icons } from './icons';
 import { highlight } from './code';
 import { KIND_LABEL, fmtDur, stateText } from './list';
+import type { DetailFactory, DetailScrubber } from './transport/types';
 
 export type ExportTab = 'css' | 'linear' | 'motion' | 'gsap';
 
@@ -22,6 +23,8 @@ const TABS: { id: ExportTab; label: string; fn: (s: AnimationSpec) => string }[]
 export interface DetailCallbacks {
   onBack(): void;
   onScrub(id: string, t: number): void;
+  /** The current transport option's detail scrubber. */
+  scrubber(): DetailFactory;
   getTab(): ExportTab;
   setTab(tab: ExportTab): void;
 }
@@ -76,12 +79,12 @@ function copyButton(getText: () => string, label: string, withText: boolean) {
 export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
   let currentId: string | null = null;
   let curve: BigCurve | null = null;
-  let slider: HTMLInputElement | null = null;
-  let readout: Readout | null = null;
+  let scrubber: DetailScrubber | null = null;
+  /** Model frozen for the current drag / key presses; cleared on each poll. */
+  let dragModel: OneScrub | null = null;
   let stateEl: HTMLElement | null = null;
   let siblingsEl: HTMLElement | null = null;
   let scrollEl: HTMLElement | null = null;
-  let dragging = false;
   let spec: AnimationSpec | null = null;
   let model: OneScrub | null = null;
 
@@ -91,11 +94,11 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
   let raf = 0;
   function tick() {
     raf = 0;
-    if (!spec || !sample || !sample.running || dragging || root.hidden) return;
+    if (!spec || !sample || !sample.running || scrubber?.dragging || root.hidden) return;
     const elapsed = Math.min(600, performance.now() - sample.at);
     const t = sample.t + elapsed * sample.rate;
     curve?.setProgress(iterationProgress(spec, t));
-    if (slider) slider.value = String(oneScrub(spec, t).value);
+    scrubber?.glide(oneScrub(spec, t).value);
     raf = requestAnimationFrame(tick);
   }
 
@@ -106,25 +109,19 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
     const ease = summarizeEasing(s);
     curve = bigCurve(iterationCurve(s), s.keyframes.map((k) => k.offset));
 
-    slider = h('input', { type: 'range', min: '0', max: '1', step: '1', class: 'slider', 'aria-label': 'Scrub this animation' });
-    let dragModel: OneScrub | null = null;
-    slider.addEventListener('pointerdown', () => {
-      dragging = true;
-      dragModel = model;
+    // The scrubber maps its value with the model from when the drag started,
+    // so an iteration rolling over mid-drag doesn't move the range.
+    scrubber = cb.scrubber()({
+      spec: s,
+      onScrub(v) {
+        dragModel ??= model;
+        if (!dragModel) return;
+        const t = dragModel.toTime(v);
+        // Move the curve's playhead with the scrubber now, not on the next poll.
+        curve?.setProgress(iterationProgress(s, t));
+        cb.onScrub(s.id, t);
+      },
     });
-    slider.addEventListener('pointerup', () => (dragging = false));
-    slider.addEventListener('input', () => {
-      const m = dragModel ?? model;
-      if (!m) return;
-      const v = Number(slider!.value);
-      cb.onScrub(s.id, m.toTime(v));
-      readout?.set(m.label.replace(/^\d+/, String(Math.round(v))), m.max);
-    });
-    slider.addEventListener('change', () => {
-      dragging = false;
-      dragModel = null;
-    });
-    readout = createReadout();
     stateEl = h('span', { class: 'row-state' });
     siblingsEl = h('p', { class: 'note' });
 
@@ -225,7 +222,7 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
           h('span', { class: 'label' }, easeNote),
           h('code', { class: 'ease-text', title: tidyEasing(ease.css) }, ease.source === 'per-keyframe' ? 'per keyframe' : tidyEasing(ease.css)),
         ),
-        h('div', { class: 'scrub-one' }, slider, readout.el),
+        scrubber.el,
       ),
       h('dl', { class: 'facts' }, ...facts.map(([k, v]) => h('div', { class: 'fact' }, h('dt', {}, k), h('dd', {}, v)))),
       h(
@@ -309,17 +306,19 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
       setText(siblingsEl, ctx.siblings ? `Same animation on ${ctx.siblings} other element${ctx.siblings === 1 ? '' : 's'}.` : '');
       if (siblingsEl.hidden !== !ctx.siblings) siblingsEl.hidden = !ctx.siblings;
     }
-    if (!dragging) {
-      model = oneScrub(s, live.currentTime);
-      if (slider) {
-        const max = String(Math.round(model.max));
-        const value = String(Math.round(model.value));
-        if (slider.max !== max) slider.max = max;
-        if (slider.value !== value) slider.value = value;
-        if (slider.disabled !== disabled) slider.disabled = disabled;
-      }
+    if (!scrubber?.dragging) {
+      const m = oneScrub(s, live.currentTime);
+      model = m;
+      dragModel = null;
+      scrubber?.update({
+        max: m.max,
+        value: m.value,
+        label: m.label,
+        word: live.scrollLinked ? 'Scroll-linked' : live.ended ? 'Ended' : null,
+        disabled,
+        toTime: (v) => m.toTime(v),
+      });
       curve?.setProgress(iterationProgress(s, live.currentTime));
-      readout?.set(live.scrollLinked ? 'Scroll-linked' : live.ended ? 'Ended' : model.label, model.max);
     }
     const running = live.playState === 'running' && !disabled && live.currentTime != null;
     sample = running ? { t: live.currentTime!, at: performance.now(), rate: live.playbackRate, running } : null;
@@ -329,65 +328,12 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
 
   return {
     render,
+    /** Rebuild with the current transport option's scrubber on the next render. */
+    rebuild() {
+      currentId = null;
+    },
     get id() {
       return currentId;
-    },
-  };
-}
-
-interface Readout {
-  el: HTMLElement;
-  set(label: string, max: number): void;
-}
-
-/**
- * The per-animation readout, e.g. "588 / 2000 ms · iteration 3". The current
- * time and the iteration number sit in fixed-width slots, so the text (and
- * the slider beside it) don't move as the numbers tick each poll.
- */
-function createReadout(): Readout {
-  const cur = numSlot(4);
-  const mid = h('span', {});
-  const where = h('span', {});
-  const iter = numSlot(2);
-  iter.el.classList.add('num-start');
-  const tail = h('span', {});
-  const word = h('span', {});
-  const el = h('span', { class: 'time readout' }, cur.el, mid, where, iter.el, tail, word);
-  const RE = /^(\d+)( \/ \d+ ms)(?:( · iteration )(\d+)(.*)|(.*))$/;
-  return {
-    el,
-    set(label, max) {
-      const m = RE.exec(label);
-      const show = (node: HTMLElement, on: boolean) => {
-        if (node.hidden === on) node.hidden = !on;
-      };
-      show(word, !m);
-      show(cur.el, !!m);
-      show(mid, !!m);
-      if (!m) {
-        setText(word, label);
-        show(where, false);
-        show(iter.el, false);
-        show(tail, false);
-        return;
-      }
-      cur.digits(String(Math.round(max)).length);
-      cur.set(m[1]!);
-      setText(mid, m[2]!);
-      show(where, true);
-      show(tail, true);
-      if (m[4] != null) {
-        setText(where, m[3]!);
-        iter.digits(Math.max(2, m[4].length));
-        iter.set(m[4]);
-        show(iter.el, true);
-        setText(tail, m[5] ?? '');
-      } else {
-        setText(where, m[6] ?? '');
-        show(iter.el, false);
-        setText(tail, '');
-      }
     },
   };
 }

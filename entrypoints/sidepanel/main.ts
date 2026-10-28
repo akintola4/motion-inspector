@@ -3,16 +3,16 @@ import type { AgentPoll, AgentSnapshot, AnimationEntry, AnimationSpec } from '..
 import { iterationProgress } from '../../lib/timing';
 import { filterAnimations, groupAnimations, groupKey, lingeringIds, type StatusFilter } from '../../lib/grouping';
 import { h, numSlot, setAttr, setText } from './h';
-import { icons } from './icons';
 import { setupTheme } from './theme';
 import { RestrictedPageError, TabBridge, isRestrictedUrl } from './bridge';
 import { createList } from './list';
 import { createDetail, type ExportTab } from './detail';
+import { FACTORIES, FRAME, RATES, readVariant, variantSwitch, type GlobalState, type GlobalTransport, type Lane, type Variant } from './transport';
+import { nextRate } from './transport/controls';
 
 const POLL_MS = 250;
 /** A just-ended animation stays under Live this long, so short re-triggering (and ping-ponging) transitions don’t blink rows in and out, and a hover transition stays put long enough to click. */
 const LINGER_MS = 3000;
-const RATES = [0.1, 0.25, 0.5, 1];
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'ended', label: 'Ended' },
@@ -40,8 +40,8 @@ let reorder = true;
 let status: 'loading' | 'ready' | 'restricted' | 'error' = 'loading';
 let errorText = '';
 let inFlight = false;
-let draggingGlobal = false;
 let pendingScrub: number | null = null;
+let variant: Variant = readVariant();
 let listScroll = 0;
 let host = '';
 
@@ -121,18 +121,14 @@ const gsapEl = h('span', { class: 'badge', hidden: true, title: 'GSAP found on t
 const statusLabel = h('span', { class: 'sr-only', role: 'status' });
 const statusEl = h('span', { class: 'status' }, h('span', { class: 'status-dot', 'aria-hidden': 'true' }), statusLabel);
 
-const playBtn = h('button', { class: 'btn btn-primary play', type: 'button', 'aria-label': 'Pause all' });
-const restartBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Restart all', title: 'Restart all', html: icons.restart });
-const scrub = h('input', { type: 'range', min: '0', max: '1000', step: '1', value: '0', class: 'slider timeline', 'aria-label': 'Scrub all animations' });
-/* "588 / 2000 ms" when paused, "2000 ms" when live. The current-time slot
-   keeps its width in both, so the timeline never resizes. */
-const timeCur = numSlot(4);
-const timeSep = h('span', { class: 'time-sep' }, ' / ');
-const timeEnd = numSlot(4);
-const timeEl = h('span', { class: 'time' }, timeCur.el, timeSep, timeEnd.el, ' ms');
-const rateBtns = RATES.map((r) =>
-  h('button', { class: 'seg-btn', type: 'button', dataset: { rate: String(r) }, 'aria-label': `Speed ${r}×`, onclick: () => setRate(r) }, `${r}×`),
-);
+const transportCallbacks = {
+  togglePlay: () => void togglePlay(),
+  setRate: (r: number) => void setRate(r),
+  restart: () => void restart(),
+  scrub: (t: number) => queueScrub(t),
+  step: (frames: number) => step(frames),
+};
+let transport: GlobalTransport = FACTORIES[variant].global(transportCallbacks);
 const filterBtns = FILTERS.map((f) => {
   // Two-digit slot: the label doesn't slide as the count goes 9 → 10.
   const count = numSlot(2);
@@ -154,20 +150,21 @@ const listView = h(
   listRoot,
 );
 
+const variantEl = variantSwitch(variant, (v) => {
+  if (v === variant) return;
+  variant = v;
+  const next = FACTORIES[v].global(transportCallbacks);
+  transport.destroy();
+  transport.el.replaceWith(next.el);
+  transport = next;
+  app.dataset.transport = v;
+  detail.rebuild();
+  render();
+});
+app.dataset.transport = variant;
 app.append(
-  h('header', { class: 'top' }, statusEl, hostEl, gsapEl, themeBtn),
-  h(
-    'section',
-    { class: 'transport' },
-    h(
-      'div',
-      { class: 'transport-row' },
-      playBtn,
-      h('div', { class: 'seg', role: 'group', 'aria-label': 'Playback rate' }, ...rateBtns),
-      restartBtn,
-    ),
-    h('div', { class: 'transport-row timeline-row' }, scrub, timeEl),
-  ),
+  h('header', { class: 'top' }, statusEl, hostEl, gsapEl, variantEl, themeBtn),
+  transport.el,
   h('main', { class: 'body' }, listView, detailRoot),
 );
 setupTheme(themeBtn);
@@ -187,6 +184,7 @@ listRoot.prepend(stateRoot);
 const detail = createDetail(detailRoot, {
   onBack: () => void open(null),
   onScrub: (id, t) => void call('scrubOne', id, t).then(poll),
+  scrubber: () => FACTORIES[variant].detail,
   getTab: () => exportTab,
   setTab: (t) => (exportTab = t),
 });
@@ -282,6 +280,11 @@ async function setRate(r: number) {
   await poll();
 }
 
+async function restart() {
+  await call('restart');
+  await poll();
+}
+
 function setFilter(f: StatusFilter) {
   filter = f;
   reorder = true;
@@ -308,39 +311,86 @@ async function open(id: string | null) {
 function flushScrub() {
   if (pendingScrub == null) return;
   const t = pendingScrub;
-  pendingScrub = null;
   void call('scrub', t).then(() => {
-    if (pendingScrub != null) requestAnimationFrame(flushScrub);
-    else void poll();
+    // Keep holding the local value until the page has caught up with the last one.
+    if (pendingScrub !== t) requestAnimationFrame(flushScrub);
+    else {
+      pendingScrub = null;
+      void poll();
+    }
   });
 }
-scrub.addEventListener('pointerdown', () => {
-  draggingGlobal = true;
-  app.classList.add('is-scrubbing');
-});
-window.addEventListener('pointerup', () => (draggingGlobal = false));
-scrub.addEventListener('input', () => {
+function queueScrub(t: number) {
   const first = pendingScrub == null;
-  pendingScrub = Number(scrub.value);
-  app.classList.add('is-scrubbing');
-  setTime(pendingScrub, Number(scrub.max));
+  pendingScrub = t;
   if (first) requestAnimationFrame(flushScrub);
-});
-playBtn.addEventListener('click', togglePlay);
-restartBtn.addEventListener('click', async () => {
-  await call('restart');
-  await poll();
-});
+}
 
-/* Keyboard: Space toggles play, Escape goes back. */
+/** Where the global timeline is: the scrub in flight, else the page's position. */
+function position(): number {
+  if (pendingScrub != null) return pendingScrub;
+  if (!snap) return 0;
+  return snap.scrubTime ?? referenceTime(snap);
+}
+
+/** Pause (scrubbing pauses) and move by whole frames. */
+function step(frames: number) {
+  if (!snap || status !== 'ready') return;
+  const t = Math.max(0, Math.min(snap.scrubEnd, position() + frames * FRAME));
+  queueScrub(t);
+  if (!transport.dragging) render();
+}
+
+/*
+ * Keyboard, from docs/transport-research.md:
+ *   Space / K  play-pause          , .  one frame back / forward
+ *   ← →        one frame (Shift 10) J L  slower / faster (L also plays)
+ *   R          restart              Esc  back to the list
+ * A focused slider handles its own arrows, `,` `.`, Home/End and Page keys.
+ */
 document.addEventListener('keydown', (e) => {
-  const tag = (e.target as HTMLElement).tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-  if (e.key === ' ') {
-    e.preventDefault();
-    void togglePlay();
-  } else if (e.key === 'Escape' && selectedId) {
-    void open(null);
+  const t = e.target as HTMLElement;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (t.closest('[role=menu]')) return;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  switch (key) {
+    case ' ':
+      e.preventDefault();
+      void togglePlay();
+      return;
+    case 'k':
+      e.preventDefault();
+      void togglePlay();
+      return;
+    case ',':
+    case '.':
+      e.preventDefault();
+      step(key === ',' ? -1 : 1);
+      return;
+    case 'ArrowLeft':
+    case 'ArrowRight':
+      // Arrow keys in the list move focus between rows (list.ts).
+      if (t.closest('.list, .seg')) return;
+      e.preventDefault();
+      step((key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1));
+      return;
+    case 'j':
+    case 'l': {
+      if (!snap) return;
+      e.preventDefault();
+      const r = nextRate(snap.rate, key === 'j' ? -1 : 1);
+      if (key === 'l' && snap.paused) void call('play');
+      void setRate(r);
+      return;
+    }
+    case 'r':
+      e.preventDefault();
+      void restart();
+      return;
+    case 'Escape':
+      if (selectedId) void open(null);
+      return;
   }
 });
 
@@ -392,16 +442,6 @@ function hostOf(url: string) {
   }
 }
 
-/** Transport readout. `cur` null = live: only the length shows, the slot keeps its width. */
-function setTime(cur: number | null, end: number) {
-  const digits = String(Math.round(end)).length;
-  timeCur.digits(digits);
-  timeEnd.digits(digits);
-  timeCur.set(cur == null ? '' : String(Math.round(cur)));
-  timeEnd.set(String(Math.round(end)));
-  timeEl.classList.toggle('is-idle', cur == null);
-}
-
 function setStatus(state: 'live' | 'paused' | 'none') {
   if (statusEl.dataset.state === state) return;
   statusEl.dataset.state = state;
@@ -410,25 +450,34 @@ function setStatus(state: 'live' | 'paused' | 'none') {
   statusEl.title = state === 'live' ? 'Live: the page is playing' : state === 'paused' ? 'Paused' : '';
 }
 
-let playIcon = '';
-function setPlayIcon(paused: boolean) {
-  const want = paused ? 'play' : 'pause';
-  if (playIcon === want) return;
-  playIcon = want;
-  playBtn.innerHTML = paused ? icons.play : icons.pause;
-  playBtn.setAttribute('aria-label', paused ? 'Play all' : 'Pause all');
-  playBtn.title = paused ? 'Play all (Space)' : 'Pause all (Space)';
-  playBtn.classList.toggle('is-paused', paused);
-}
-
 function setDisabled(els: (HTMLButtonElement | HTMLInputElement)[], disabled: boolean) {
   for (const el of els) if (el.disabled !== disabled) el.disabled = disabled;
+}
+
+/** Each live animation's span on the global timeline (scrub sets every animation to the same time). */
+function lanesOf(s: AgentSnapshot): Lane[] {
+  return s.animations
+    .filter((a) => !a.live.ended && !a.live.scrollLinked)
+    .map((a) => {
+      const it = a.spec.iterations === 'infinite' ? 1 : a.spec.iterations;
+      return { start: a.spec.delay, end: Math.min(s.scrubEnd, a.spec.delay + a.spec.duration * it), name: a.spec.name };
+    })
+    .filter((l) => l.end > l.start);
+}
+
+function renderTransport() {
+  const ready = status === 'ready' && !!snap;
+  const st: GlobalState = snap && ready
+    ? { ready, paused: snap.paused, live: !snap.paused && snap.scrubTime == null && pendingScrub == null, rate: snap.rate, end: snap.scrubEnd, pos: Math.min(snap.scrubEnd, Math.max(0, position())), lanes: lanesOf(snap), holding: pendingScrub != null }
+    : { ready: false, paused: false, live: true, rate: 1, end: 0, pos: 0, lanes: [], holding: false };
+  transport.render(st);
 }
 
 /** `background`: called from a poll rather than a user action. */
 function render(background = false) {
   const ready = status === 'ready' && !!snap;
-  setDisabled([playBtn, restartBtn, scrub, ...rateBtns, ...filterBtns.map((f) => f.b)], !ready);
+  setDisabled(filterBtns.map((f) => f.b), !ready);
+  renderTransport();
 
   if (!ready || !snap) {
     renderState(0, 0);
@@ -438,51 +487,16 @@ function render(background = false) {
     app.classList.remove('has-detail');
     detail.render(null, { siblings: 0, paused: false });
     setStatus('none');
-    setPlayIcon(false);
     for (const f of filterBtns) f.count.set('');
-    scrub.value = '0';
-    app.classList.add('is-live');
-    setTime(null, 0);
-    timeEl.classList.add('is-empty');
     return;
   }
-  timeEl.classList.remove('is-empty');
 
   host = hostOf(snap.url);
   setText(hostEl, host);
   if (hostEl.title !== snap.url) hostEl.title = snap.url;
   if (gsapEl.hidden === snap.gsapDetected) gsapEl.hidden = !snap.gsapDetected;
 
-  /* Transport */
-  const live = !snap.paused && snap.scrubTime == null;
-  setPlayIcon(snap.paused);
   setStatus(snap.paused ? 'paused' : 'live');
-
-  for (const b of rateBtns) {
-    const on = Number(b.dataset.rate) === snap.rate;
-    b.classList.toggle('is-on', on);
-    setAttr(b, 'aria-pressed', String(on));
-  }
-
-  const max = String(snap.scrubEnd);
-  if (scrub.max !== max) scrub.max = max;
-  if (!draggingGlobal && pendingScrub == null) {
-    // While the page plays, the timeline is idle: no moving thumb, no
-    // ticking number. The playhead only shows once you pause or scrub.
-    app.classList.toggle('is-live', live);
-    if (!live) app.classList.remove('is-scrubbing');
-    if (live) {
-      if (scrub.value !== '0') scrub.value = '0';
-      setTime(null, snap.scrubEnd);
-      setAttr(timeEl, 'title', 'Timeline length. Drag to pause and scrub.');
-    } else {
-      const ref = snap.scrubTime ?? referenceTime(snap);
-      const v = String(Math.round(Math.min(snap.scrubEnd, Math.max(0, ref))));
-      if (scrub.value !== v) scrub.value = v;
-      setTime(Number(v), snap.scrubEnd);
-      setAttr(timeEl, 'title', '');
-    }
-  }
 
   /* List */
   const lingering = lingeringIds(snap.animations, endedAt, performance.now(), LINGER_MS, !lingerPrimed);
