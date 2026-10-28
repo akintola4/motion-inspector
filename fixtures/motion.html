@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Motion</title><link rel="stylesheet" href="fixture.css"></head>
+<body>
+  <h1>Motion animate()</h1>
+  <p>A spring on transform (Motion hands it to WAAPI as linear()), a cubic-bezier opacity tween, and an independent x transform that Motion runs in JS.</p>
+  <div class="stage">
+    <div class="cell"><small>spring · WAAPI</small><div class="box blue m-spring"></div></div>
+    <div class="cell"><small>opacity · WAAPI</small><div class="box violet m-fade"></div></div>
+    <div class="cell"><small>x · JS-driven</small><div class="box amber m-x"></div></div>
+  </div>
+  <script src="/vendor/motion.js"></script>
+  <script>
+    const { animate } = Motion;
+    animate('.m-spring', { transform: ['translateX(-60px)', 'translateX(60px)'] }, {
+      type: 'spring', bounce: 0.4, visualDuration: 0.6, repeat: Infinity, repeatType: 'reverse', repeatDelay: 0.4,
+    });
+    animate('.m-fade', { opacity: [0.15, 1] }, {
+      duration: 1.2, ease: [0.22, 1, 0.36, 1], repeat: Infinity, repeatType: 'reverse',
+    });
+    animate('.m-x', { x: [-60, 60] }, { duration: 1.5, ease: 'easeInOut', repeat: Infinity, repeatType: 'reverse' });
+  </script>
+</body>
+</html>

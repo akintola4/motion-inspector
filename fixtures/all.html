@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><title>Everything</title><link rel="stylesheet" href="fixture.css">
+<style>
+  :root {
+    --spring: linear(0, 0.0035 0.83%, 0.0134 1.67%, 0.039 2.92%, 0.0753 4.17%, 0.1204 5.42%, 0.1908 7.08%, 0.2896 9.17%, 0.5611 14.58%, 0.6771 17.08%, 0.7642 19.17%, 0.8412 21.25%, 0.9071 23.33%, 0.9619 25.42%, 1.0058 27.5%, 1.0397 29.58%, 1.0644 31.67%, 1.0834 34.17%, 1.0936 37.08%, 1.0932 40.42%, 1.0795 45%, 1.0217 57.92%, 1.0023 64.58%, 0.9925 72.08%, 0.9925 83.75%, 1);
+  }
+  @keyframes pulse {
+    0% { opacity: 0.2; transform: scale(0.85); animation-timing-function: ease-in; }
+    30% { opacity: 1; transform: scale(1.1); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes drop { from { transform: translateY(-50px) scale(0.9); } to { transform: translateY(0) scale(1); } }
+  .pulse { animation: pulse 1.6s 200ms infinite alternate both; }
+  .spring { animation: drop 972ms var(--spring) 300ms infinite; }
+  .toggle {
+    width: 120px; height: 40px; border: 0; border-radius: 10px; font: 500 13px system-ui;
+    background: #e5e5e5; color: #0a0a0a;
+    transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1), background-color 700ms ease;
+  }
+  .toggle.on { transform: translateX(30px); background: #0070f3; color: #fff; }
+</style>
+</head>
+<body>
+  <h1>Everything</h1>
+  <p>CSS keyframes, a transition, WAAPI, a linear() spring, GSAP and Motion on one page.</p>
+  <div class="stage">
+    <div class="cell"><small>CSS pulse</small><div class="box blue pulse"></div></div>
+    <div class="cell"><small>CSS transition</small><button class="toggle" id="toggle">Toggle</button></div>
+    <div class="cell"><small>WAAPI slide</small><div class="box violet" id="slide"></div></div>
+    <div class="cell"><small>linear() spring</small><div class="box green spring"></div></div>
+    <div class="cell"><small>GSAP back.out</small><div class="box amber g-rot"></div></div>
+    <div class="cell"><small>Motion spring</small><div class="box m-spring"></div></div>
+  </div>
+  <script src="/vendor/gsap.js"></script>
+  <script src="/vendor/motion.js"></script>
+  <script>
+    const btn = document.getElementById('toggle');
+    setInterval(() => btn.classList.toggle('on'), 1500);
+    document.getElementById('slide').animate(
+      [{ transform: 'translateX(-50px)' }, { transform: 'translateX(50px)' }],
+      { id: 'slide', duration: 1200, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', iterations: Infinity, direction: 'alternate' },
+    );
+    gsap.to('.g-rot', { rotation: 180, duration: 1.2, repeat: -1, yoyo: true, ease: 'back.out(1.7)' });
+    Motion.animate('.m-spring', { transform: ['translateY(30px)', 'translateY(-30px)'] }, {
+      type: 'spring', bounce: 0.35, visualDuration: 0.5, repeat: Infinity, repeatType: 'reverse', repeatDelay: 0.3,
+    });
+  </script>
+</body>
+</html>

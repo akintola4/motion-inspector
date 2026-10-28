@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><title>Spring via linear()</title><link rel="stylesheet" href="fixture.css">
+<style>
+  /* bounce 0.4, visualDuration 0.5s — sampled into linear() */
+  :root {
+    --spring: linear(0, 0.0035 0.83%, 0.0134 1.67%, 0.039 2.92%, 0.0753 4.17%, 0.1204 5.42%, 0.1908 7.08%, 0.2896 9.17%, 0.5611 14.58%, 0.6771 17.08%, 0.7642 19.17%, 0.8412 21.25%, 0.9071 23.33%, 0.9619 25.42%, 1.0058 27.5%, 1.0397 29.58%, 1.0644 31.67%, 1.0834 34.17%, 1.0936 37.08%, 1.0932 40.42%, 1.0795 45%, 1.0217 57.92%, 1.0023 64.58%, 0.9925 72.08%, 0.9925 83.75%, 1);
+  }
+  @keyframes drop { from { transform: translateY(-50px) scale(0.9); } to { transform: translateY(0) scale(1); } }
+  .spring { animation: drop 972ms var(--spring) 300ms infinite; }
+</style>
+</head>
+<body>
+  <h1>Spring via linear()</h1>
+  <p>A Motion-style spring (bounce 0.4, visualDuration 0.5s) baked into a CSS linear() easing.</p>
+  <div class="stage">
+    <div class="cell"><small>drop</small><div class="box green spring"></div></div>
+  </div>
+</body>
+</html>

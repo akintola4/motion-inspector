@@ -1,0 +1,13 @@
+:root { color-scheme: light; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+body { margin: 0; padding: 32px; background: #fafafa; color: #0a0a0a; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+p { margin: 0 0 24px; color: #6b6b6b; font-size: 14px; }
+.stage { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.cell { position: relative; height: 160px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fff; display: grid; place-items: center; overflow: hidden; }
+.cell > small { position: absolute; left: 12px; top: 10px; font: 500 11px/1 ui-monospace, monospace; color: #8a8a8a; }
+.box { width: 48px; height: 48px; border-radius: 10px; background: #0a0a0a; }
+.blue { background: #0070f3; }
+.violet { background: #7c3aed; }
+.green { background: #16a34a; }
+.amber { background: #f59e0b; }
+nav a { display: block; margin: 6px 0; color: #0070f3; }

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><title>CSS @keyframes</title><link rel="stylesheet" href="fixture.css">
+<style>
+  @keyframes pulse {
+    0% { opacity: 0.2; transform: scale(0.85); animation-timing-function: ease-in; }
+    30% { opacity: 1; transform: scale(1.1); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  .pulse { animation: pulse 1.6s 200ms infinite alternate both; }
+  .spin { animation: spin 2s linear infinite; }
+  .dot::after { content: ''; display: block; width: 12px; height: 12px; border-radius: 50%; background: #16a34a; animation: blink 1s steps(2, jump-none) infinite; }
+</style>
+</head>
+<body>
+  <h1>CSS @keyframes</h1>
+  <p>Multi-keyframe animation with per-keyframe easing, a linear spinner, and a steps() pseudo-element.</p>
+  <div class="stage">
+    <div class="cell"><small>pulse</small><div class="box blue pulse"></div></div>
+    <div class="cell"><small>spin</small><div class="box violet spin"></div></div>
+    <div class="cell"><small>::after blink</small><div class="dot"></div></div>
+  </div>
+</body>
+</html>

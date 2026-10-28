@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><title>CSS transitions</title><link rel="stylesheet" href="fixture.css">
+<style>
+  .toggle {
+    width: 140px; height: 44px; border: 0; border-radius: 10px; font: 500 14px system-ui;
+    background: #e5e5e5; color: #0a0a0a;
+    transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1), background-color 700ms ease;
+  }
+  .toggle.on { transform: translateX(40px); background: #0070f3; color: #fff; }
+  .toggle:hover { transform: translateY(-4px); }
+</style>
+</head>
+<body>
+  <h1>CSS transitions</h1>
+  <p>The button toggles a class every 1.5s so transitions keep firing. Hover it too.</p>
+  <div class="stage">
+    <div class="cell"><small>toggle</small><button class="toggle" id="toggle">Toggle</button></div>
+  </div>
+  <script>
+    const btn = document.getElementById('toggle');
+    setInterval(() => btn.classList.toggle('on'), 1500);
+  </script>
+</body>
+</html>

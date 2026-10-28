@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>GSAP</title><link rel="stylesheet" href="fixture.css"></head>
+<body>
+  <h1>GSAP</h1>
+  <p>A repeating timeline with three tweens, plus a standalone yoyo tween. GSAP is served from node_modules.</p>
+  <div class="stage">
+    <div class="cell"><small>.a  power2.out</small><div class="box blue a"></div></div>
+    <div class="cell"><small>.b  back.out(1.7)</small><div class="box violet b"></div></div>
+    <div class="cell"><small>.c  elastic.out</small><div class="box green c"></div></div>
+    <div class="cell"><small>.d  sine.inOut</small><div class="box amber d"></div></div>
+  </div>
+  <script src="/vendor/gsap.js"></script>
+  <script>
+    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.3, yoyo: true });
+    tl.to('.a', { x: 60, duration: 1, ease: 'power2.out' })
+      .to('.b', { rotation: 180, duration: 0.8, ease: 'back.out(1.7)' })
+      .fromTo('.c', { opacity: 0.2, scale: 0.8 }, { opacity: 1, scale: 1.2, duration: 1, ease: 'elastic.out(1, 0.4)' });
+    gsap.to('.d', { y: -30, duration: 0.6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+  </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>WAAPI</title><link rel="stylesheet" href="fixture.css"></head>
+<body>
+  <h1>Web Animations API</h1>
+  <p>element.animate() with a cubic-bezier, and a three-keyframe animation with uneven offsets.</p>
+  <div class="stage">
+    <div class="cell"><small>slide</small><div class="box blue" id="slide"></div></div>
+    <div class="cell"><small>hop</small><div class="box amber" id="hop"></div></div>
+  </div>
+  <script>
+    document.getElementById('slide').animate(
+      [{ transform: 'translateX(-60px)' }, { transform: 'translateX(60px)' }],
+      { id: 'slide', duration: 1200, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', iterations: Infinity, direction: 'alternate' },
+    );
+    document.getElementById('hop').animate(
+      [
+        { transform: 'translateY(0px)', easing: 'ease-out' },
+        { transform: 'translateY(-50px)', offset: 0.35, easing: 'ease-in' },
+        { transform: 'translateY(0px)' },
+      ],
+      { id: 'hop', duration: 900, delay: 150, iterations: Infinity },
+    );
+  </script>
+</body>
+</html>
