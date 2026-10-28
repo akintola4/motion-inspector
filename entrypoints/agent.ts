@@ -101,7 +101,7 @@ export default defineUnlistedScript(() => {
   style.textContent = `
     div{position:fixed;box-sizing:border-box;pointer-events:none}
     .box{border:1.5px solid #0070f3;background:rgba(0,112,243,.08);border-radius:2px;display:none}
-    .label{display:none;font:500 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;
+    .label{display:none;font:500 12px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#fff;
       background:#0070f3;padding:2px 6px;border-radius:4px;white-space:nowrap;max-width:60vw;
       overflow:hidden;text-overflow:ellipsis}`;
   box.className = 'box';
@@ -125,7 +125,7 @@ export default defineUnlistedScript(() => {
       width: `${r.width}px`,
       height: `${r.height}px`,
     });
-    label.textContent = highlighted!.spec.selector;
+    label.textContent = highlighted!.spec.label;
     const above = r.top > 24;
     Object.assign(label.style, {
       display: 'block',
@@ -135,12 +135,13 @@ export default defineUnlistedScript(() => {
     rafId = requestAnimationFrame(placeOverlay);
   }
 
-  function select(id: string | null) {
+  /** Outline an animation's target. `scroll: false` for hover previews. */
+  function select(id: string | null, scroll = true) {
     highlighted = id ? entries.get(id) ?? null : null;
     if (highlighted && !host.isConnected) document.documentElement.append(host);
     if (rafId) cancelAnimationFrame(rafId);
     if (highlighted) {
-      highlighted.target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      if (scroll) highlighted.target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
       placeOverlay();
     } else {
       box.style.display = label.style.display = 'none';
@@ -195,6 +196,7 @@ export default defineUnlistedScript(() => {
       name,
       selector: target ? uniqueSelector(target, effect.pseudoElement) : '(no target)',
       label: target ? elementLabel(target, effect.pseudoElement) : '(no target)',
+      ...(target ? { size: sizeOf(target) } : {}),
       duration: typeof timing.duration === 'number' ? timing.duration : 0,
       delay: timing.delay ?? 0,
       endDelay: timing.endDelay ?? 0,
@@ -206,6 +208,11 @@ export default defineUnlistedScript(() => {
       properties,
       ...(nameIsGenerated ? { nameIsGenerated } : {}),
     };
+  }
+
+  function sizeOf(el: Element): string {
+    const r = el.getBoundingClientRect();
+    return `${Math.round(r.width)}×${Math.round(r.height)}`;
   }
 
   function isScrollLinked(a: Animation) {

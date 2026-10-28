@@ -48,6 +48,8 @@ export interface AnimationSpec {
   selector: string;
   /** Human label for the target, e.g. `div.skeleton`, `button “Save”`. */
   label: string;
+  /** Target's rendered size when first seen, e.g. "172×16". */
+  size?: string;
   /** All timing values in milliseconds. */
   duration: number;
   delay: number;

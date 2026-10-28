@@ -46,6 +46,11 @@ function snippet(text: string | null | undefined, max = 24): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+function shortText(el: Element): string {
+  const t = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return t && t.length <= 60 ? snippet(t) : '';
+}
+
 function own(el: Element): string {
   const tag = el.localName;
   const aria = snippet(el.getAttribute('aria-label'), 28);
@@ -54,14 +59,21 @@ function own(el: Element): string {
   const classes = meaningfulClasses(el);
   if (classes.length) {
     const doc = el.ownerDocument;
-    const unique = classes.find((c) => {
-      try {
-        return doc.getElementsByClassName(c).length === 1;
-      } catch {
-        return false;
-      }
-    });
-    return `${tag}.${unique ?? classes[0]}`;
+    // The most descriptive class that singles the element out: `hero-title`
+    // over `red`. Otherwise the first meaningful one.
+    const unique = classes
+      .filter((c) => {
+        try {
+          return doc.getElementsByClassName(c).length === 1;
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => b.length - a.length)[0];
+    if (unique) return `${tag}.${unique}`;
+    // Shared class (`button.chip`): short text tells the siblings apart.
+    const text = shortText(el);
+    return text ? `${tag}.${classes[0]} “${text}”` : `${tag}.${classes[0]}`;
   }
   return '';
 }
@@ -75,8 +87,8 @@ export function elementLabel(el: Element, pseudo?: string | null): string {
   if (mine) return mine + suffix;
   const tag = el.localName;
   // Short visible text: buttons, links, headings, chips.
-  const text = el.textContent ?? '';
-  if (text.trim() && text.replace(/\s+/g, ' ').trim().length <= 60) return `${tag} “${snippet(text)}”${suffix}`;
+  const text = shortText(el);
+  if (text) return `${tag} “${text}”${suffix}`;
   // Otherwise, name it by the nearest ancestor that has a name.
   let cur = el.parentElement;
   for (let depth = 0; cur && cur !== doc.body && depth < 4; depth++, cur = cur.parentElement) {
