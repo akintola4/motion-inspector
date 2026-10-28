@@ -200,7 +200,7 @@ function global(cb: GlobalCallbacks): GlobalTransport {
   );
 
   function setTime(pos: number | null, e: number, live: boolean) {
-    const d = String(Math.round(e)).length;
+    const d = Math.max(4, String(Math.round(e)).length);
     cur.digits(d);
     endN.digits(d);
     cur.set(live || pos == null ? '' : ms(pos));

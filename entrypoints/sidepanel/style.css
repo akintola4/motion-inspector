@@ -101,7 +101,7 @@ body[data-theme='light'] {
    Base
    ========================================================================== */
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; height: 100%; overflow-x: hidden; } /* safety net only */
 body {
   background: var(--bg);
   color: var(--fg);
@@ -632,6 +632,8 @@ button svg { display: block; flex: none; }
 /* Shared slider engine (transport/scrubber.ts): the element is the hit area. */
 .scrub {
   position: relative;
+  overflow-x: clip; /* playhead rails are translated by up to 100%: keep them inside */
+  overflow-clip-margin: 2px;
   min-width: 0;
   min-height: 24px;
   cursor: pointer;
@@ -677,6 +679,7 @@ button svg { display: block; flex: none; }
 .ta-speed::before { content: ''; position: absolute; inset: -4px 0; } /* 32px target */
 .ta-speed > * { grid-area: 1 / 1; }
 .ta-speed-ghost { visibility: hidden; }
+.ta-speed-text { justify-self: stretch; text-align: center; } /* the box stays put; only the glyphs change */
 @media (hover: hover) and (pointer: fine) {
   .ta-speed:not(:disabled):hover { background: var(--border); }
 }

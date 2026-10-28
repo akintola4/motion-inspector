@@ -102,7 +102,8 @@ function global(cb: GlobalCallbacks): GlobalTransport {
   );
 
   function setTimes(pos: number | null, end: number, live: boolean) {
-    const d = String(Math.round(end)).length;
+    // At least 4 digits, so the bar keeps its width from "Connecting…" on.
+    const d = Math.max(4, String(Math.round(end)).length);
     elapsed.ghost(d, false);
     remain.ghost(d, true);
     elapsed.set(pos == null ? '' : `${ms(pos)} ms`);

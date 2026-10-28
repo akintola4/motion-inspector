@@ -121,8 +121,28 @@ interface Result {
   drift: string[];
 }
 const results: Result[] = [];
+let shotPrefix = '';
 
-const STABLE_CHROME = ['.top', '.top .host', '.top .icon-btn', '.top .live-dot', 'button.play', '.transport .seg', '.transport .seg-btn', '.transport .icon-btn', '.status', '.status-dot', '.timeline', '.transport .time', '.list-bar', '.seg-btn[data-filter]'];
+/** Transport options to audit on all.html (see entrypoints/sidepanel/transport). */
+const VARIANTS = (process.env.VARIANTS ?? 'current,a,b,c').split(',');
+/** Every option tags its stable parts with data-part. */
+const STABLE_ANY = ['.top', '.top .host', '.top > .icon-btn', '.status', '.status-dot', '.variant-switch', '.transport', '.transport [data-part]', '.list-bar', '.seg-btn[data-filter]'];
+
+/** Set the global scrubber: native range (current) or an option's role=slider. */
+async function seekGlobal(panel: Page, value: number) {
+  await panel.$eval(
+    '.transport [data-part=scrubber]',
+    (el, v) => {
+      if (el instanceof HTMLInputElement) {
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      } else el.dispatchEvent(new CustomEvent('mi-seek', { detail: v }));
+    },
+    value,
+  );
+}
+
+const STABLE_CHROME_CURRENT = ['.top', '.top .host', '.top .icon-btn', '.top .live-dot', 'button.play', '.transport .seg', '.transport .seg-btn', '.transport .icon-btn', '.status', '.status-dot', '.timeline', '.transport .time', '.list-bar', '.seg-btn[data-filter]'];
 
 async function step(
   panel: Page,
@@ -134,11 +154,11 @@ async function step(
 ) {
   const before = await rects(panel, stable);
   const { shifts: n } = await auditState(panel);
-  if (opts.shot) await panel.screenshot({ path: join(OUT, `${opts.shot}-before.png`) });
+  if (opts.shot) await panel.screenshot({ path: join(OUT, `${shotPrefix}${opts.shot}-before.png`) });
   await run();
   await sleep(opts.settle ?? 500);
   const after = await rects(panel, stable);
-  if (opts.shot) await panel.screenshot({ path: join(OUT, `${opts.shot}-after.png`) });
+  if (opts.shot) await panel.screenshot({ path: join(OUT, `${shotPrefix}${opts.shot}-after.png`) });
   const shifts = await shiftsSince(panel, n);
   const r: Result = {
     fixture,
@@ -218,7 +238,7 @@ async function openPanel(ctx: BrowserContext, extId: string, tabId: number, them
 }
 
 const ROW_PARTS = ['.rows .row', '.rows .row-name', '.rows .kind', '.rows .row-dur', '.rows .row-curve', '.rows .row-end', '.rows .row-state', '.rows .row-count'];
-const DETAIL = ['.detail-bar', '.back', '.back svg', '.detail-bar .kind', '.detail-head h2', '.curve-card', '.big-curve', '.scrub-one .slider', '.scrub-one .time', '.facts', '.export-bar', '.seg-btn[data-tab]', '.copy', '.code', '.keyframes'];
+const DETAIL = ['.detail-bar', '.back', '.back svg', '.detail-bar .kind', '.detail-head h2', '.curve-card', '.big-curve', '.scrub-one', '.scrub-one [data-part]', '.facts', '.export-bar', '.seg-btn[data-tab]', '.copy', '.code', '.keyframes'];
 
 async function main() {
   rmSync(PROFILE, { recursive: true, force: true });
@@ -234,22 +254,24 @@ async function main() {
   const sw = ctx.serviceWorkers()[0] ?? (await ctx.waitForEvent('serviceworker'));
   const extId = new URL(sw.url()).host;
 
-  /* ---------------- all.html ---------------- */
-  {
-    const F = 'all.html';
+  /* ---------------- all.html, once per transport option ---------------- */
+  for (const variant of VARIANTS) {
+    const F = `all.html [${variant}]`;
+    const STABLE_CHROME = variant === 'current' ? [...STABLE_ANY, ...STABLE_CHROME_CURRENT] : STABLE_ANY;
+    shotPrefix = variant === 'current' ? '' : `${variant}-`;
     const page = await ctx.newPage();
-    await page.goto(`${BASE}/${F}`);
+    await page.goto(`${BASE}/all.html`);
     await sleep(900);
     const tabId = await tabIdFor(sw, page);
 
     // Connecting… → loaded: header + transport must already be in their final place.
     const panel = await ctx.newPage();
       await panel.setViewportSize(PANEL_SIZE);
-    await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=light`, { waitUntil: 'commit' });
+    await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=light&transport=${variant}`, { waitUntil: 'commit' });
     await panel.waitForSelector('.top');
     await step(panel, F, 'Connecting… → loaded', STABLE_CHROME, () => panel.waitForSelector('.rows .row').then(() => {}), { settle: 900, shot: 'load' });
 
-    alignRows.push({ where: 'all.html list, live', ...(await measureAlignment(panel)) });
+    alignRows.push({ where: `${F} list, live`, ...(await measureAlignment(panel)) });
     await idle(panel, F, 'idle polling, list, live (3 s)', [...STABLE_CHROME, ...ROW_PARTS]);
 
     for (const f of ['ended', 'all', 'live']) {
@@ -260,12 +282,31 @@ async function main() {
     await panel.mouse.move(5, 5);
 
     await step(panel, F, 'pause (button)', [...STABLE_CHROME, ...ROW_PARTS], () => panel.click('button.play'), { shot: 'pause' });
-    alignRows.push({ where: 'all.html list, paused', ...(await measureAlignment(panel)) });
+    alignRows.push({ where: `${F} list, paused`, ...(await measureAlignment(panel)) });
     await idle(panel, F, 'idle polling, list, paused (3 s)', [...STABLE_CHROME, ...ROW_PARTS]);
     await step(panel, F, 'play (Space)', [...STABLE_CHROME, ...ROW_PARTS], () => panel.keyboard.press(' '), { shot: 'play' });
 
-    for (const r of ['0.1', '0.25', '0.5', '1']) {
-      await step(panel, F, `speed → ${r}×`, STABLE_CHROME, () => panel.click(`.seg-btn[data-rate="${r}"]`));
+    if (variant === 'current') {
+      for (const r of ['0.1', '0.25', '0.5', '1']) {
+        await step(panel, F, `speed → ${r}×`, STABLE_CHROME, () => panel.click(`.seg-btn[data-rate="${r}"]`));
+      }
+    } else {
+      await panel.mouse.move(5, 5);
+      for (const k of ['j', 'j', 'j', 'l', 'l', 'l']) await step(panel, F, `speed key ${k.toUpperCase()}`, STABLE_CHROME, () => panel.keyboard.press(k), { settle: 350 });
+      await step(panel, F, 'pause + frame steps (. ×3, , ×1)', STABLE_CHROME, async () => {
+        await panel.keyboard.press('k');
+        for (const k of ['.', '.', '.', ',']) await panel.keyboard.press(k);
+      });
+      await step(panel, F, 'hover the scrubber', STABLE_CHROME, () => panel.hover('.transport [data-part=scrubber]'));
+      await step(panel, F, 'drag the scrubber', STABLE_CHROME, async () => {
+        const b = (await panel.locator('.transport [data-part=scrubber]').boundingBox())!;
+        await panel.mouse.move(b.x + b.width * 0.2, b.y + b.height / 2);
+        await panel.mouse.down();
+        await panel.mouse.move(b.x + b.width * 0.7, b.y + b.height / 2, { steps: 10 });
+        await panel.mouse.up();
+      });
+      await panel.mouse.move(5, 5);
+      await step(panel, F, 'play (Space)', STABLE_CHROME, () => panel.keyboard.press(' '));
     }
     await step(panel, F, 'theme toggle ×3', [...STABLE_CHROME, ...ROW_PARTS], async () => {
       for (let i = 0; i < 3; i++) {
@@ -276,7 +317,7 @@ async function main() {
 
     // Drill in / out.
     await step(panel, F, 'drill in (click row)', STABLE_CHROME, () => panel.locator('.rows .row[data-id]', { hasText: 'drop' }).first().click(), { shot: 'drill-in' });
-    alignRows.push({ where: 'all.html detail, live', ...(await measureAlignment(panel)) });
+    alignRows.push({ where: `${F} detail, live`, ...(await measureAlignment(panel)) });
     await idle(panel, F, 'idle polling, detail, live (3 s)', [...STABLE_CHROME, ...DETAIL]);
     for (const t of ['linear', 'motion', 'gsap', 'css']) {
       await step(panel, F, `export tab → ${t}`, [...STABLE_CHROME, ...DETAIL], () => panel.click(`.seg-btn[data-tab="${t}"]`), { shot: `tab-${t}` });
@@ -286,12 +327,7 @@ async function main() {
     await step(panel, F, 'copy → resets', [...STABLE_CHROME, ...DETAIL], async () => void (await sleep(10)));
     await step(panel, F, 'pause in detail', [...STABLE_CHROME, ...DETAIL], () => panel.click('button.play'), { shot: 'detail-pause' });
     await idle(panel, F, 'idle polling, detail, paused (3 s)', [...STABLE_CHROME, ...DETAIL]);
-    await step(panel, F, 'global scrub 400 ms', [...STABLE_CHROME, ...DETAIL], async () => {
-      await panel.$eval('.transport .slider', (el) => {
-        (el as HTMLInputElement).value = '400';
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      });
-    });
+    await step(panel, F, 'global scrub 400 ms', [...STABLE_CHROME, ...DETAIL], () => seekGlobal(panel, 400));
     await step(panel, F, 'play in detail', [...STABLE_CHROME, ...DETAIL], () => panel.click('button.play'));
     await step(panel, F, 'back (Esc)', STABLE_CHROME, () => panel.keyboard.press('Escape'), { shot: 'back-esc' });
 
@@ -313,8 +349,10 @@ async function main() {
     await page.close();
   }
 
-  /* ---------------- noisy.html ---------------- */
+  /* ---------------- noisy.html (current transport) ---------------- */
   {
+    shotPrefix = '';
+    const STABLE_CHROME = [...STABLE_ANY, ...STABLE_CHROME_CURRENT];
     const F = 'noisy.html';
     const page = await ctx.newPage();
     await page.goto(`${BASE}/${F}`);
