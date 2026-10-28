@@ -1,5 +1,5 @@
 import type { AnimationSpec } from '../types';
-import { evaluate, fitSpring, fmt, parseEasing, type EasingDef } from '../easing';
+import { evaluate, fitSpring, fmt, parseEasing, simplifyStops, type EasingDef } from '../easing';
 import { jsKey } from '../css-props';
 import {
   describe,
@@ -39,7 +39,7 @@ export function motionEase(def: EasingDef, name: string): EaseOut {
     case 'linear-fn':
       return {
         code: name,
-        prelude: [`// piecewise-linear ease sampled from the page's linear() curve`, piecewiseEaseFn(def.stops, name)],
+        prelude: [`// piecewise-linear ease sampled from the page's linear() curve`, piecewiseEaseFn(simplifyStops(def.stops), name)],
       };
   }
 }
@@ -106,9 +106,11 @@ function objectLiteral(entries: [string, string][], indent: string): string {
   return `{\n${entries.map(([k, v]) => `${indent}  ${jsKey(k)}: ${v},`).join('\n')}\n${indent}}`;
 }
 
+const valueList = (v: string[]) => (v.length === 1 ? v[0]! : `[${v.join(', ')}]`);
+
 export function toMotionVanilla(spec: AnimationSpec): string {
   const p = buildParts(spec);
-  const values = [...p.values].map(([k, v]): [string, string] => [k, `[${v.join(', ')}]`]);
+  const values = [...p.values].map(([k, v]): [string, string] => [k, valueList(v)]);
   return [
     `// ${describe(spec)}`,
     `import { animate } from "motion"`,
@@ -133,7 +135,7 @@ export function toMotionReact(spec: AnimationSpec): string {
     lines.push(`  initial={${objectLiteral(from, '  ')}}`);
     lines.push(`  animate={${objectLiteral(to, '  ')}}`);
   } else {
-    const values = [...p.values].map(([k, v]): [string, string] => [k, `[${v.join(', ')}]`]);
+    const values = [...p.values].map(([k, v]): [string, string] => [k, valueList(v)]);
     lines.push(`  animate={${objectLiteral(values, '  ')}}`);
   }
   lines.push(`  transition={${objectLiteral(p.transition.map((t) => splitEntry(t)), '  ')}}`);

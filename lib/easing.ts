@@ -231,22 +231,40 @@ export interface SampleOptions {
  */
 export function sampleStops(fn: (t: number) => number, opts: SampleOptions = {}): LinearStop[] {
   const samples = opts.samples ?? 240;
-  const tol = opts.tolerance ?? 0.0015;
   const pts: LinearStop[] = [];
   for (let i = 0; i <= samples; i++) {
     const input = i / samples;
     pts.push({ input, output: fn(input) });
   }
+  return simplifyStops(pts, opts.tolerance ?? 0.0015);
+}
+
+/** Drop stops that linear interpolation between their neighbours already reproduces. */
+export function simplifyStops(pts: LinearStop[], tol = 0.001): LinearStop[] {
+  if (pts.length <= 2) return pts;
+  const last = pts.length - 1;
   const kept: LinearStop[] = [pts[0]!];
   let anchor = 0;
-  for (let j = 2; j <= samples; j++) {
+  for (let j = 2; j <= last; j++) {
     if (!segmentFits(pts, anchor, j, tol)) {
       kept.push(pts[j - 1]!);
       anchor = j - 1;
     }
   }
-  kept.push(pts[samples]!);
+  kept.push(pts[last]!);
   return kept;
+}
+
+/**
+ * A tidier spelling of an easing: linear() lists (which browsers serialize
+ * with long percentages) are simplified, cubic-beziers are rounded.
+ * Anything unparseable is returned untouched.
+ */
+export function tidyEasing(css: string): string {
+  const def = parseEasing(css);
+  if (!def) return css;
+  if (def.type === 'linear-fn') return stopsToLinear(simplifyStops(def.stops));
+  return toCss(def);
 }
 
 function segmentFits(pts: LinearStop[], a: number, b: number, tol: number) {
@@ -266,7 +284,7 @@ export function sampleToLinear(fn: (t: number) => number, opts: SampleOptions = 
 
 /** linear() for any easing def. Steps stay exact as steps(). */
 export function toLinear(def: EasingDef, opts: SampleOptions = {}): string {
-  if (def.type === 'linear-fn') return stopsToLinear(def.stops);
+  if (def.type === 'linear-fn') return stopsToLinear(simplifyStops(def.stops));
   if (def.type === 'linear') return 'linear';
   if (def.type === 'steps') return toCss(def);
   return sampleToLinear((t) => evaluate(def, t), opts);

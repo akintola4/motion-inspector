@@ -1,5 +1,6 @@
 import type { AnimationSpec } from '../types';
 import { camelToKebab } from '../css-props';
+import { tidyEasing } from '../easing';
 import { cssIdent, describe, directionalKeyframes, fmtTime, summarizeEasing } from './shared';
 
 function decls(props: Record<string, string>, indent: string): string[] {
@@ -17,7 +18,7 @@ export function toCssTransition(spec: AnimationSpec): string {
   const last = spec.keyframes[spec.keyframes.length - 1]?.props ?? {};
   const list = props
     .map((p) => {
-      const parts = [camelToKebab(p), fmtTime(spec.duration), ease.css];
+      const parts = [camelToKebab(p), fmtTime(spec.duration), tidyEasing(ease.css)];
       if (spec.delay) parts.push(fmtTime(spec.delay));
       return parts.join(' ');
     })
@@ -38,7 +39,7 @@ export function toCssTransition(spec: AnimationSpec): string {
 
 export function toCssAnimation(spec: AnimationSpec): string {
   const ease = summarizeEasing(spec);
-  const name = cssIdent(spec.name || 'motion');
+  const name = cssIdent(spec.nameIsGenerated ? `animate-${spec.name}` : spec.name || 'motion');
   const kfs = directionalKeyframes({ ...spec, direction: 'normal' });
   const notes: string[] = [];
 
@@ -58,7 +59,7 @@ export function toCssAnimation(spec: AnimationSpec): string {
     const isLast = i === kfs.length - 1;
     const lines = decls(k.props, '    ');
     if (!isLast && ease.source === 'per-keyframe' && k.easing !== ease.css) {
-      lines.push(`    animation-timing-function: ${k.easing};`);
+      lines.push(`    animation-timing-function: ${tidyEasing(k.easing)};`);
     }
     body.push(`  ${pct(k.offset)} {`, ...lines, `  }`);
   });
@@ -67,7 +68,7 @@ export function toCssAnimation(spec: AnimationSpec): string {
   const shorthand = [
     name,
     fmtTime(spec.duration),
-    ease.css,
+    tidyEasing(ease.css),
     spec.delay ? fmtTime(spec.delay) : '',
     iterations,
     spec.direction !== 'normal' ? spec.direction : '',

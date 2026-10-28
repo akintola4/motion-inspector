@@ -31,6 +31,7 @@ interface GsapAnimation {
   repeatDelay(): number;
   yoyo(): boolean;
   totalTime(): number;
+  startTime?(): number;
   totalTime(t: number, suppressEvents?: boolean): GsapAnimation;
   progress(): number;
   isActive(): boolean;
@@ -181,6 +182,7 @@ export default defineUnlistedScript(() => {
     let name = a.id;
     if (kind === 'css-animation') name = (a as CSSAnimation).animationName;
     if (kind === 'css-transition') name = (a as CSSTransition).transitionProperty;
+    const nameIsGenerated = !name;
     if (!name) name = properties.slice(0, 2).join(', ') || 'animation';
     const iterations = timing.iterations ?? 1;
     return {
@@ -197,6 +199,7 @@ export default defineUnlistedScript(() => {
       easing: timing.easing ?? 'linear',
       keyframes,
       properties,
+      ...(nameIsGenerated ? { nameIsGenerated } : {}),
     };
   }
 
@@ -214,6 +217,13 @@ export default defineUnlistedScript(() => {
     const spec = specFor(a, id);
     if (!spec) return;
     animIds.set(a, id);
+    // Re-running the same transition/animation creates a new Animation
+    // object each time; keep only the newest one instead of a growing list.
+    for (const [otherId, e] of entries) {
+      if (e.ended && e.spec.kind === spec.kind && e.spec.selector === spec.selector && e.spec.name === spec.name) {
+        entries.delete(otherId);
+      }
+    }
     const scrollLinked = isScrollLinked(a);
     entries.set(id, { id, anim: a, target, spec, firstSeen: performance.now(), ended: false, scrollLinked });
     if (scrollLinked) return;
@@ -268,11 +278,14 @@ export default defineUnlistedScript(() => {
           { offset: 1, easing: 'linear', props: toCss },
         ]
       : [{ offset: 1, easing: 'linear', props: toCss }];
-    const name = typeof t.vars.id === 'string' ? t.vars.id : Object.keys(vars).slice(0, 3).join(', ') || 'tween';
+    const hasId = typeof t.vars.id === 'string';
+    const name = hasId ? (t.vars.id as string) : Object.keys(vars).slice(0, 3).join(', ') || 'tween';
+    const inTimeline = !!t.parent && t.parent !== g.globalTimeline;
     return {
       id,
       kind: 'gsap',
       name: targets.length > 1 ? `${name} ×${targets.length}` : name,
+      ...(hasId ? {} : { nameIsGenerated: true }),
       selector: first ? uniqueSelector(first) : '(non-element target)',
       duration: t.duration() * 1000,
       delay: t.delay() * 1000,
@@ -290,6 +303,7 @@ export default defineUnlistedScript(() => {
         repeatDelay: t.repeatDelay(),
         vars,
         ...(fromVars ? { fromVars } : {}),
+        ...(inTimeline && t.startTime ? { timelinePosition: t.startTime() } : {}),
       },
     };
   }

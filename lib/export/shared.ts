@@ -4,7 +4,7 @@ import { parseEasing, type EasingDef } from '../easing';
 export function fmtTime(ms: number): string {
   if (!Number.isFinite(ms)) return '0ms';
   if (Math.abs(ms) >= 1000) return `${Number((ms / 1000).toFixed(3))}s`;
-  return `${Number(ms.toFixed(1))}ms`;
+  return `${Math.abs(ms) >= 10 ? Math.round(ms) : Number(ms.toFixed(1))}ms`;
 }
 
 export function seconds(ms: number): number {

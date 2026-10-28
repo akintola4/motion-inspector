@@ -33,6 +33,8 @@ export interface GsapInfo {
   vars: Record<string, string>;
   /** Start values from fromTo()/startAt, when present. */
   fromVars?: Record<string, string>;
+  /** Start time (s) inside its parent timeline, when it isn't top-level. */
+  timelinePosition?: number;
 }
 
 export interface AnimationSpec {
@@ -40,6 +42,8 @@ export interface AnimationSpec {
   kind: AnimationKind;
   /** animationName, transitionProperty, WAAPI id, or a generated label. */
   name: string;
+  /** True when `name` was made up from the properties (no id / animationName). */
+  nameIsGenerated?: boolean;
   /** Short unique selector for the target, e.g. ".card:nth-of-type(2)". */
   selector: string;
   /** All timing values in milliseconds. */

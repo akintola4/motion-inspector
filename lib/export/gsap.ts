@@ -1,5 +1,5 @@
 import type { AnimationSpec } from '../types';
-import { fmt, parseEasing, type EasingDef } from '../easing';
+import { fmt, parseEasing, simplifyStops, type EasingDef } from '../easing';
 import { bezierToGsapEase } from '../gsap-eases';
 import { jsKey } from '../css-props';
 import {
@@ -38,7 +38,7 @@ export function gsapEase(def: EasingDef, name: string): EaseOut {
     case 'linear-fn':
       return {
         code: name,
-        prelude: [`// piecewise-linear ease sampled from the page's linear() curve`, piecewiseEaseFn(def.stops, name)],
+        prelude: [`// piecewise-linear ease sampled from the page's linear() curve`, piecewiseEaseFn(simplifyStops(def.stops), name)],
         customEase: false,
       };
   }
@@ -77,7 +77,11 @@ function fromGsapSource(spec: AnimationSpec): string {
   const call = g.fromVars
     ? `gsap.fromTo(${target}, ${obj(Object.entries(g.fromVars).map(([k, v]) => [k, jsValue(v)]))}, ${obj(opts)})`
     : `gsap.to(${target}, ${obj(opts)})`;
-  return [`// ${describe(spec)}`, ...header(false), '', call].join('\n');
+  const note =
+    g.timelinePosition != null
+      ? [`// this tween sits inside a timeline at ${Number(g.timelinePosition.toFixed(3))}s; use tl.to(…, ${Number(g.timelinePosition.toFixed(3))}) to keep its place`]
+      : [];
+  return [`// ${describe(spec)}`, ...note, ...header(false), '', call].join('\n');
 }
 
 export function toGsap(spec: AnimationSpec): string {

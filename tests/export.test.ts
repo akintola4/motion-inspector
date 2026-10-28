@@ -170,3 +170,19 @@ describe('CSS for GSAP-sourced tweens', () => {
     expect(out).toContain('cubic-bezier(0.34, 1.56, 0.64, 1)');
   });
 });
+
+describe('edge cases', () => {
+  it('writes a single target value (no array) for to-only tweens in Motion', () => {
+    const out = toMotionVanilla({ ...gsapSpec, kind: 'waapi' });
+    expect(out).toContain('transform: "translateX(100px) rotate(90deg)",');
+  });
+
+  it('prefixes generated @keyframes names', () => {
+    expect(toCss({ ...waapi, name: 'transform', nameIsGenerated: true })).toContain('@keyframes animate-transform {');
+  });
+
+  it('notes a GSAP tween’s position inside its timeline', () => {
+    const out = toGsap({ ...gsapSpec, gsap: { ...gsapSpec.gsap!, timelinePosition: 1.8 } });
+    expect(out).toContain('inside a timeline at 1.8s');
+  });
+});

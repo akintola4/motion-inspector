@@ -6,6 +6,7 @@ import {
   sampleStops,
   sampleToLinear,
   springToLinear,
+  tidyEasing,
   toCss,
   toLinear,
   type EasingDef,
@@ -130,5 +131,21 @@ describe('springs', () => {
     const def = parseEasing('cubic-bezier(0.22, 1, 0.36, 1)')!;
     expect(fitSpring((t) => evaluate(def, t), 400)).toBeNull();
     expect(fitSpring((t) => t, 400)).toBeNull();
+  });
+});
+
+describe('tidyEasing', () => {
+  it('simplifies a browser-serialized linear() without changing its shape', () => {
+    const verbose = `linear(${Array.from({ length: 101 }, (_, i) => `${(i / 100) ** 2} ${i}%`).join(', ')})`;
+    const tidy = tidyEasing(verbose);
+    expect(tidy.length).toBeLessThan(verbose.length / 2);
+    const a = parseEasing(verbose)!;
+    const b = parseEasing(tidy)!;
+    for (let i = 0; i <= 50; i++) expect(Math.abs(evaluate(a, i / 50) - evaluate(b, i / 50))).toBeLessThan(0.0015);
+  });
+
+  it('keeps keywords and leaves junk alone', () => {
+    expect(tidyEasing('ease-out')).toBe('ease-out');
+    expect(tidyEasing('var(--x)')).toBe('var(--x)');
   });
 });
