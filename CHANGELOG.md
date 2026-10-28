@@ -8,6 +8,52 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.2.0] — 2026-10-28
+
+UI polish after trying 0.1.0 on a real Next.js/Tailwind site.
+
+### Changed
+
+- **Type.** Geist for the whole UI; Geist Mono only for code (export,
+  selector, easing strings, keyframe values). Numbers use tabular figures.
+  Same tokens as RPC, with every text colour at 4.5:1 or better on the
+  surfaces it sits on.
+- **No more "loading" look.** The transport shows a static Live / Paused
+  state. While live, the timeline is idle instead of crawling like a
+  progress bar; the playhead appears when you pause or scrub. List rows
+  no longer carry ticking progress bars.
+- **Layout.** The detail view is a drill-in with a back button (and
+  `Escape`), so neither the list nor the detail is squeezed into a third
+  of the panel. The list keeps its scroll position and focus.
+- **Header.** Just the host, a GSAP badge when present, and the theme
+  toggle; Chrome already titles the panel.
+- **Labels.** Rows name elements the way you would (`div.skeleton`,
+  `button.chip “Design”`, `div in article.card`), skipping Tailwind
+  utilities and generated names. The full selector is in the detail view,
+  wrapped and copyable.
+- **Polling.** Specs are sent once; each 250 ms poll carries live state
+  only.
+
+### Added
+
+- Identical animations fold into one row with a count (`pulse ×12`) that
+  expands to the elements, with their sizes.
+- Live / Ended / All filter, Live by default. Zero-length animations are
+  hidden behind a note.
+- Hovering a row outlines its element on the page.
+- Keyboard: `↑`/`↓` between rows, `→`/`←` to open and close a group,
+  `Enter` to open, `Escape` to go back.
+- A noisy fixture page and E2E checks for grouping, the ended filter and
+  the iteration readout.
+
+### Fixed
+
+- The per-animation readout for loops showed the total elapsed time
+  (`26372 / 2000 ms`). It now shows the position inside the current
+  iteration (`372 / 2000 ms · iteration 14`) and the slider stays in range.
+- The panel no longer flashes back to "Connecting…" when a page that's
+  already attached fires another load-complete event.
+
 ## [0.1.0] — 2026-10-28
 
 First release.

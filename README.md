@@ -12,8 +12,10 @@ It lives in Chrome's side panel, so it stays open while you hover, click and scr
 
 | Light | Dark |
 | ----- | ---- |
-| ![Light, spring selected](screenshots/panel-light.png) | ![Dark, spring selected](screenshots/panel-dark.png) |
 | ![Light, list](screenshots/list-light.png) | ![Dark, list](screenshots/list-dark.png) |
+| ![Light, spring detail](screenshots/detail-light.png) | ![Dark, spring detail](screenshots/detail-dark.png) |
+| ![Light, noisy Tailwind page: skeleton pulses grouped](screenshots/noisy-light.png) | ![Dark, noisy page paused](screenshots/noisy-dark.png) |
+| ![Light, pulse group expanded](screenshots/noisy-expanded-light.png) | ![Dark, one pulse in its 4th iteration](screenshots/noisy-detail-dark.png) |
 
 ## Install (no Node required)
 
@@ -31,16 +33,18 @@ Needs Chrome 116 or newer (side panel API). Edge, Brave, Arc and other Chromium 
 ## How to use
 
 - **Open the panel** on the tab you want to inspect. It follows the active tab and re-attaches after reloads.
-- **Pause / play** everything with the button or `Space`. GSAP's global timeline pauses with it.
-- **Scrub** with the slider. Every animation is moved to the same time from its start, the same model DevTools uses.
+- **Pause / play** everything with the button or `Space`. GSAP's global timeline pauses with it. The dot next to the button says whether the page is **Live** or **Paused**.
+- **Scrub** with the timeline. While the page is live the timeline sits idle (dashed, no playhead); grab it and everything pauses and moves to the same time from its start, the model DevTools uses.
 - **Slow it down** with 0.1×, 0.25× or 0.5×. The rate also applies to animations that start later.
-- **Click a row** to select it. The element is outlined on the page and the detail view shows:
+- **The list** shows what's running now (**Live**); **Ended** and **All** are one click away. Identical animations on many elements fold into one row (`pulse ×12`) that expands to the elements, with their size so you can tell them apart. Zero-length animations are hidden behind a note. Rows name the element the way you would (`button.chip “Design”`, `div in article.card`), not with a selector path. Hover a row to outline its element on the page; `↑`/`↓` move between rows, `→`/`←` open and close a group, `Enter` opens.
+- **Open an animation** to drill into it (`Escape` or the back button returns to the list where you left it). The element stays outlined on the page and the detail view shows:
   - the easing curve with a playhead, and the easing as written;
+  - a scrubber for that one animation. Loops scrub within the current iteration and say which one (`372 / 2000 ms · iteration 14`);
   - duration, delay, iterations, direction, fill, end delay;
-  - a scrubber for that one animation;
-  - the keyframes;
-  - the export, in four tabs: **CSS**, **linear()**, **Motion**, **GSAP**, with a Copy button.
-- **Catching hover transitions:** pause first, then hover. New animations are held the moment they start, and finished ones stay in the list (dimmed) so you can still export them.
+  - the full selector, copyable;
+  - the export, in four tabs: **CSS**, **linear()**, **Motion**, **GSAP**, with a Copy button;
+  - the keyframes.
+- **Catching hover transitions:** pause first, then hover. New animations are held the moment they start, and finished ones stay under **Ended** so you can still export them.
 
 ### What the exports do
 
@@ -98,7 +102,7 @@ pnpm icons          # rasterize public/icon.svg
 
 `pnpm e2e` loads the built extension into Playwright's Chromium, opens each fixture page, and checks that the panel lists the right animations, that pause freezes `currentTime`, that scrubbing sets it, that the rate applies, that every export tab produces code, and that closing the panel leaves the page running at 1×. It also writes the screenshots in `screenshots/`. Playwright can't click the toolbar icon or read the real side panel's DOM, so the UI checks run on the same panel page opened in a tab with `?tabId=<fixture tab>`. One extra check opens the real side panel with `chrome.sidePanel.open` and confirms it follows the active tab and injects the inspector.
 
-The fixtures cover CSS `@keyframes`, CSS transitions, WAAPI with a cubic-bezier, a spring via `linear()`, a GSAP timeline and Motion's `animate()`. GSAP and Motion are served from `node_modules`, no CDN.
+The fixtures cover CSS `@keyframes`, CSS transitions, WAAPI with a cubic-bezier, a spring via `linear()`, a GSAP timeline, Motion's `animate()`, and a noisy Tailwind-style page (twelve `animate-pulse` skeletons, chips flipping every 180 ms, zero-length WAAPI calls) that checks grouping, the ended filter and the iteration readout. GSAP and Motion are served from `node_modules`, no CDN.
 
 ## Architecture
 
@@ -110,15 +114,17 @@ entrypoints/
 └── sidepanel/
     ├── main.ts          # tab tracking, polling, transport controls
     ├── bridge.ts        # every agent call is one chrome.scripting.executeScript
-    ├── list.ts          # keyed animation rows, updated in place
-    ├── detail.ts        # curve, timing, keyframes, export tabs
+    ├── list.ts          # keyed, grouped rows, updated in place; keyboard nav
+    ├── detail.ts        # drill-in view: curve, scrubber, timing, export tabs
     ├── curve.ts         # SVG curves
     └── style.css
 
 lib/
 ├── easing.ts            # parse / evaluate / sample to linear() / spring + spring fit
 ├── gsap-eases.ts        # GSAP ease names ↔ beziers
-├── timing.ts            # iteration progress and curves for the panel
+├── timing.ts            # iteration position, per-animation scrub range, curves
+├── grouping.ts          # fold identical animations, live/ended filter, no-op check
+├── label.ts             # human labels for elements (skips Tailwind utilities)
 ├── selector.ts          # short unique selectors
 └── export/              # css, linear, motion, gsap: pure functions, unit-tested
 
@@ -131,7 +137,7 @@ docs/plan.md             # design notes and v1 scope
 
 - [WXT](https://wxt.dev) for the MV3 build.
 - TypeScript strict, with `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`. No UI framework, just a small `h()` DOM helper.
-- [Geist](https://vercel.com/font) and Geist Mono.
+- [Geist](https://vercel.com/font) for the UI, Geist Mono for code. Same tokens as its sibling extension, RPC.
 - [Vitest](https://vitest.dev) and [Playwright](https://playwright.dev) for tests.
 
 ## License
