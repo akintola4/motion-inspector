@@ -342,3 +342,77 @@ Out (later):
 - grouping animations by start time the way DevTools does;
 - Firefox build;
 - Web Store listing.
+
+## 11. v0.2 UI polish
+
+Feedback from running 0.1.0 on a real Next.js/Tailwind site: too much mono,
+low-contrast small gray text, the panel "keeps loading", a wrong iteration
+readout, a duplicated title, and a list buried under skeleton pulses and
+ended transitions. The changes, by issue:
+
+1. **Type: sans first.** Geist is the UI face everywhere. Geist Mono is kept
+   for code only: the export block, the full selector in the detail view,
+   easing strings and keyframe values. Numbers (durations, times, counts) use
+   Geist with `tabular-nums`.
+2. **Tokens and contrast.** Same tokens as RPC (dark `#0a0a0a / #ededed /
+   #8a8a8a / #161616`, light `#f3f3f3 / #0a0a0a / #6b6b6b / #fff`). Muted
+   text is checked against every surface it sits on (bg, elevated, hover,
+   selected) for ≥ 4.5:1; anything that reads as body copy (row subtitles,
+   fact values) uses `--fg` or a stronger secondary, not `--fg-muted`. Sizes:
+   13px body, 12px secondary, 11px uppercase labels (0.06em), nothing under
+   11px except kind tags.
+3. **"Keeps loading".** Three causes, three fixes:
+   - The global scrubber moved every poll while the page played, so it read
+     as a progress bar. While playing, the transport shows a static **Live**
+     indicator and the scrubber is an idle timeline (no moving thumb, readout
+     shows the range). The playhead (a thin vertical line, not a round knob or
+     a filled bar) only appears when paused or scrubbing.
+   - Per-row progress bars ticking on every row are gone from the list;
+     a row shows a small static state dot (running / paused / ended).
+     Progress lives in the detail view's curve, interpolated locally with
+     rAF between polls so it moves smoothly instead of jumping at 4 Hz
+     (and only updates at poll rate under reduced motion).
+   - The 250 ms poll used to resend every spec with all keyframes. The agent
+     now has `poll(known)`: static specs are sent once, then only live state
+     (`playState`, `currentTime`, ended) plus the id order. A per-injection
+     session id tells the panel to drop its cache after a reload.
+4. **Iteration readout.** A new `iterationPosition(spec, t)` in
+   `lib/timing.ts` returns `{ phase, iteration, local }`. The detail scrubber
+   for infinite animations covers one iteration (`0 → duration`) and scrubs
+   within the current iteration; the readout says `372 / 2000 ms · iteration
+   14`. Finite animations keep the absolute `0 → active end` range.
+5. **Header.** Chrome already titles the side panel. The panel header is just
+   the host and the theme toggle.
+6. **List noise.** `groupAnimations()` in `lib/grouping.ts` folds animations
+   with the same kind, name, timing, easing and keyframes into one row
+   (`pulse ×12`) that expands to its members. A segmented **Live / Ended /
+   All** filter defaults to Live. Zero-length and no-op animations (0 ms, or
+   every keyframe identical) are hidden behind a "show" link with a count.
+7. **Labels.** The agent computes a short human label per target
+   (`elementLabel()`: aria-label → `#id` → most specific non-utility class →
+   short text snippet → tag; Tailwind-style utilities are ignored). Rows show
+   the label; the full selector moves to the detail view, wrapped, mono, with
+   a Copy button.
+8. **Layout: drill-in, not split.** The list takes the full panel height;
+   opening an animation replaces it with the detail view, which has a back
+   button (and `Escape`). Why not a split: at side-panel width both halves
+   need height — the list to scan a noisy page, the detail for the curve and
+   the code block — and a split gave each about a third of the screen. A
+   resizable divider would make the user manage layout on every visit. A
+   drill-in keeps both full-height, keeps the list's scroll position and
+   focus when you come back, and mirrors how Chrome's own side panels
+   (Reading list, Bookmarks) navigate.
+9. **Rhythm and states.** 4px spacing grid, one row height, consistent 12px
+   panel gutter. Hover (pointer devices only), `:focus-visible` rings in a
+   neutral colour, `scale(0.97)` press on buttons. Keyboard: ↑/↓ moves through
+   rows, → / ← expands / collapses a group, Enter opens, Escape goes back.
+   The curve gets a cleaner frame, 0/1 guides for overshoot and a soft area
+   fill. `prefers-reduced-motion` drops the press scale and the rAF playhead
+   interpolation; colour fades stay.
+
+Tests: unit tests for `iterationPosition`, the per-animation scrub mapping,
+`groupAnimations`, the no-op check and `elementLabel`. E2E: a `noisy.html`
+fixture (12 Tailwind-style `animate-pulse` skeletons, dozens of short
+transitions, zero-length WAAPI calls) checks grouping, the ended filter and
+the iteration readout. Screenshots are regenerated in light and dark for
+the list, the detail view and the noisy page.
