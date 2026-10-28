@@ -54,8 +54,10 @@ export function bigCurve(fn: (t: number) => number, ticks: number[] = []): BigCu
     el('circle', { cx: x1, cy: g.point(1, fn(1))[1], r: 2.5, class: 'curve-end' }),
   );
 
+  // The playhead moves every frame while the animation runs: position it
+  // with a transform instead of rewriting geometry attributes.
   const head = el('line', { x1: 0, y1: pad / 2, x2: 0, y2: h - pad / 2, class: 'curve-head' });
-  const dot = el('circle', { r: 4.5, class: 'curve-dot' });
+  const dot = el('circle', { cx: 0, cy: 0, r: 4.5, class: 'curve-dot' });
   svg.append(head, dot);
 
   return {
@@ -65,10 +67,8 @@ export function bigCurve(fn: (t: number) => number, ticks: number[] = []): BigCu
       head.style.display = dot.style.display = show ? '' : 'none';
       if (!show) return;
       const [x, y] = g.point(p, fn(p));
-      head.setAttribute('x1', String(x));
-      head.setAttribute('x2', String(x));
-      dot.setAttribute('cx', String(x));
-      dot.setAttribute('cy', String(y));
+      head.style.transform = `translate(${x.toFixed(2)}px, 0)`;
+      dot.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
     },
   };
 }
