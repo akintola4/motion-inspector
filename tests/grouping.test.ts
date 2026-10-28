@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterAnimations, groupAnimations, isNoop } from '../lib/grouping';
+import { filterAnimations, groupAnimations, isNoop, lingeringIds } from '../lib/grouping';
 import type { AnimationEntry, AnimationSpec } from '../lib/types';
 import { cssKeyframes, transition } from './specs';
 
@@ -49,5 +49,49 @@ describe('filterAnimations', () => {
     expect(filterAnimations(list, 'all', false).hiddenNoop).toBe(1);
     expect(filterAnimations(list, 'all', true).shown).toHaveLength(3);
     expect(filterAnimations(list, 'ended', false).shown.map((e) => e.spec.id)).toEqual(['t1']);
+  });
+});
+
+describe('lingeringIds', () => {
+  it('keeps a just-ended animation under Live for a moment, then lets it go', () => {
+    const endedAt = new Map<string, number>();
+    const t = entry(transition, true);
+    expect([...lingeringIds([t], endedAt, 1000, 1500)]).toEqual(['t1']);
+    expect([...lingeringIds([t], endedAt, 2400, 1500)]).toEqual(['t1']);
+    expect([...lingeringIds([t], endedAt, 2600, 1500)]).toEqual([]);
+    const r = filterAnimations([t], 'live', false, lingeringIds([t], new Map(), 0, 1500));
+    expect(r.shown.map((e) => e.spec.id)).toEqual(['t1']);
+    // Listed under Live, but counted honestly as ended.
+    expect(r.counts).toEqual({ live: 0, ended: 1, all: 1 });
+  });
+
+  it('doesn’t linger animations that had already ended when the panel attached', () => {
+    const endedAt = new Map<string, number>();
+    const t = entry(transition, true);
+    expect([...lingeringIds([t], endedAt, 1000, 3000, true)]).toEqual([]);
+    expect([...lingeringIds([t], endedAt, 1250, 3000)]).toEqual([]);
+    // Something that ends after that does linger.
+    const later = entry({ ...transition, id: 't9', selector: '#late' }, true);
+    expect([...lingeringIds([t, later], endedAt, 1500, 3000)]).toEqual(['t9']);
+  });
+
+  it('drops the ended one as soon as the same animation re-triggers on that element', () => {
+    const endedAt = new Map<string, number>();
+    const old = entry(transition, true);
+    const again = entry({ ...transition, id: 't2' });
+    expect([...lingeringIds([old, again], endedAt, 0, 1500)]).toEqual([]);
+    // Reversed halfway: shorter duration, still the same transition on the same element.
+    const reversed = entry({ ...transition, id: 't4', duration: 77 });
+    expect([...lingeringIds([old, reversed], new Map(), 0, 1500)]).toEqual([]);
+    // Same timing on another element doesn't count as a re-trigger.
+    const other = entry({ ...transition, id: 't3', selector: '#other' });
+    expect([...lingeringIds([old, other], new Map(), 0, 1500)]).toEqual(['t1']);
+  });
+
+  it('forgets animations the page no longer has', () => {
+    const endedAt = new Map<string, number>();
+    lingeringIds([entry(transition, true)], endedAt, 0, 1500);
+    lingeringIds([], endedAt, 10, 1500);
+    expect(endedAt.size).toBe(0);
   });
 });
