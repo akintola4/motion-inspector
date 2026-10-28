@@ -16,6 +16,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startFixtureServer } from './serve-fixtures';
+import { diff, measureAlignment, rects } from './panel-probes';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'dist/chrome-mv3');
@@ -80,6 +81,18 @@ async function exportsFor(panel: Page) {
   await panel.click(`.seg-btn[data-tab="css"]`);
   return out;
 }
+
+/** Run `action` and report any stable element that moved more than 0.5px. */
+async function noShift(panel: Page, name: string, stable: string[], action: () => Promise<unknown>, settle = 400) {
+  const before = await rects(panel, stable);
+  await action();
+  await sleep(settle);
+  const moved = diff(before, await rects(panel, stable));
+  check(`no layout shift: ${name}`, moved.length === 0, moved.join('; '));
+}
+
+const CHROME = ['.top', '.top .status', '.top .host', '.top .icon-btn', 'button.play', '.transport .seg', '.transport .seg-btn', '.transport-row > .icon-btn', '.timeline', '.transport .time', '.list-bar', '.seg-btn[data-filter]'];
+const DETAIL = ['.detail-bar', '.back', '.back svg', '.detail-head h2', '.big-curve', '.scrub-one .slider', '.scrub-one .time', '.export-bar', '.seg-btn[data-tab]', '.export-bar .copy', '.code', '.keyframes'];
 
 const MARKERS: Record<string, RegExp> = {
   css: /@keyframes|transition:/,
@@ -220,6 +233,22 @@ async function main() {
     await panel.waitForSelector('.rows .row');
     await sleep(800);
 
+    // Alignment: status dot on the host's cap height, transport on one centre line.
+    const al = await measureAlignment(panel);
+    check('status dot centred on the host cap height (±0.5px)', Math.abs(al.dotVsCap) <= 0.5, `${al.dotVsCap}px`);
+    check('play, speed and restart share one centre line', al.segVsPlay === 0 && al.restartVsPlay === 0, `seg ${al.segVsPlay} restart ${al.restartVsPlay}`);
+    check('dot / play share the left gutter; theme / restart the right', al.dotLeftVsPlayLeft === 0 && al.themeRightVsRestartRight === 0, `left ${al.dotLeftVsPlayLeft} right ${al.themeRightVsRestartRight}`);
+    const status0 = await panel.$eval('.top .status', (el) => ({ state: (el as HTMLElement).dataset.state, word: el.textContent, title: (el as HTMLElement).title }));
+    check('header dot says Live (screen reader text + tooltip)', status0.state === 'live' && status0.word === 'Live' && /Live/.test(status0.title), JSON.stringify(status0));
+
+    for (const f of ['ended', 'all', 'live']) {
+      await noShift(panel, `filter → ${f} keeps chrome + filter bar still`, CHROME, () => panel.click(`.seg-btn[data-filter="${f}"]`));
+    }
+    await noShift(panel, 'pause keeps transport + header still', CHROME, () => panel.click('button.play'));
+    const status1 = await panel.$eval('.top .status', (el) => ({ state: (el as HTMLElement).dataset.state, word: el.textContent }));
+    check('header dot says Paused', status1.state === 'paused' && status1.word === 'Paused', JSON.stringify(status1));
+    await noShift(panel, 'play keeps transport + header still', CHROME, () => panel.click('button.play'));
+
     await panel.click('.seg-btn[data-rate="0.25"]');
     await sleep(400);
     let p = await probe(page);
@@ -261,8 +290,17 @@ async function main() {
 
     // Per-animation scrub on the WAAPI slide.
     const slideRow = panel.locator('.rows .row[data-id]', { hasText: 'slide' }).first();
-    await slideRow.click();
+    await noShift(panel, 'drill in keeps header + transport still', CHROME.slice(0, 10), () => slideRow.click());
     await panel.waitForSelector('.detail .slider');
+    const chev = await measureAlignment(panel);
+    check('back chevron centred on its label cap height (±0.5px)', chev.chevronVsCap != null && Math.abs(chev.chevronVsCap) <= 0.5, `${chev.chevronVsCap}px`);
+    for (const t of ['linear', 'motion', 'gsap', 'css']) {
+      await noShift(panel, `export tab → ${t}`, DETAIL, () => panel.click(`.seg-btn[data-tab="${t}"]`), 200);
+    }
+    await noShift(panel, 'Copy → Copied keeps the button size', DETAIL, () => panel.click('.export-bar .copy'), 200);
+    await noShift(panel, 'paused detail: polling + global scrub keep readout + slider still', DETAIL, () => setRange(panel, '.transport .slider', 1234), 1200);
+    await setRange(panel, '.transport .slider', 150);
+    await sleep(300);
     await setRange(panel, '.detail .slider', 777);
     await sleep(300);
     p = await probe(page);
@@ -405,6 +443,13 @@ async function main() {
     const children = await panel.$$eval('.rows .row.is-child', (els) => els.length);
     check('noisy.html: expanding the group lists all 12 elements', children === 12, `${children}`);
     await panel.screenshot({ path: join(SHOTS, 'noisy-expanded-light.png') });
+
+    // Live child detail: the per-animation readout ticks every poll without moving anything.
+    await panel.locator('.rows .row.is-child').first().click();
+    await panel.waitForSelector('.detail .scrub-one .time');
+    await sleep(300);
+    await noShift(panel, 'live detail: 2 s of polling moves nothing', [...CHROME.slice(0, 10), ...DETAIL], () => sleep(2000), 0);
+    await noShift(panel, 'Esc back keeps header + transport still', CHROME.slice(0, 10), () => panel.keyboard.press('Escape'));
 
     // Pause, then open one pulse: readout is the position inside the current iteration.
     await panel.click('button.play');
