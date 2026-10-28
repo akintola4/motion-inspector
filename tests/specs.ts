@@ -2,6 +2,7 @@ import type { AnimationSpec } from '../lib/types';
 import { springToLinear } from '../lib/easing';
 
 const base = {
+  label: 'div',
   delay: 0,
   endDelay: 0,
   iterations: 1,

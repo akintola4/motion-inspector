@@ -69,3 +69,76 @@ export function iterationCurve(spec: AnimationSpec): (t: number) => number {
     return seg.from + span * evaluate(seg.ease, local);
   };
 }
+
+export interface IterationPosition {
+  /** `before`: still in the start delay. `after`: past the active interval. */
+  phase: 'before' | 'active' | 'after';
+  /** Zero-based iteration index. */
+  iteration: number;
+  /** ms into the current iteration (0 while in the delay). */
+  local: number;
+}
+
+/**
+ * Where an animation is in its own timeline: which iteration, and how far
+ * into it. `currentTime` includes the start delay (as WAAPI reports it).
+ */
+export function iterationPosition(spec: AnimationSpec, currentTime: number | null): IterationPosition | null {
+  if (currentTime == null || !Number.isFinite(currentTime) || !(spec.duration > 0)) return null;
+  const local = currentTime - spec.delay;
+  if (local < 0) return { phase: 'before', iteration: 0, local: 0 };
+  if (spec.iterations !== 'infinite') {
+    const active = spec.duration * spec.iterations;
+    if (local >= active) {
+      const frac = spec.iterations % 1;
+      return {
+        phase: 'after',
+        iteration: Math.max(0, Math.ceil(spec.iterations) - 1),
+        local: spec.duration * (frac || 1),
+      };
+    }
+  }
+  return { phase: 'active', iteration: Math.floor(local / spec.duration), local: local % spec.duration };
+}
+
+/**
+ * The per-animation scrubber. Infinite animations scrub within the current
+ * iteration (0 → duration) so the slider stays in range however long the
+ * page has been running; finite ones scrub the whole first pass.
+ */
+export interface OneScrub {
+  max: number;
+  value: number;
+  /** currentTime to set for a slider value. */
+  toTime(value: number): number;
+  label: string;
+}
+
+export function oneScrub(spec: AnimationSpec, currentTime: number | null): OneScrub {
+  const pos = iterationPosition(spec, currentTime);
+  const ms = (n: number) => String(Math.round(n));
+  if (spec.iterations === 'infinite' && spec.duration > 0) {
+    const iteration = pos?.iteration ?? 0;
+    const value = pos ? pos.local : 0;
+    const base = spec.delay + iteration * spec.duration;
+    const where = pos?.phase === 'before' ? 'in delay' : `iteration ${iteration + 1}`;
+    return {
+      max: spec.duration,
+      value,
+      toTime: (v) => base + Math.max(0, Math.min(spec.duration, v)),
+      label: `${ms(value)} / ${ms(spec.duration)} ms · ${where}`,
+    };
+  }
+  const max = Math.max(1, scrubLength(spec));
+  const value = Math.max(0, Math.min(max, currentTime ?? 0));
+  const n = spec.iterations === 'infinite' ? 1 : spec.iterations;
+  let where = '';
+  if (pos?.phase === 'before') where = ' · in delay';
+  else if (pos && n > 1) where = ` · iteration ${pos.iteration + 1} of ${Math.ceil(n)}`;
+  return {
+    max,
+    value,
+    toTime: (v) => Math.max(0, Math.min(max, v)),
+    label: `${ms(value)} / ${ms(max)} ms${where}`,
+  };
+}
