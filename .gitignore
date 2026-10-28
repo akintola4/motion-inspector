@@ -15,3 +15,6 @@ public/fonts/
 # Output of scripts/layout-audit.ts
 .audit-profile/
 .layout-audit/
+
+# Profile used by scripts/transport-shots.ts
+.shots-profile/
