@@ -12,7 +12,8 @@
     "test": "vitest run",
     "fixtures": "tsx scripts/serve-fixtures.ts",
     "e2e": "wxt build && tsx scripts/e2e.ts",
-    "postinstall": "wxt prepare && node scripts/extract-geist-assets.mjs"
+    "postinstall": "wxt prepare && node scripts/extract-geist-assets.mjs",
+    "icons": "tsx scripts/generate-icons.mts"
   },
   "dependencies": {
     "geist": "^1.8.2"
