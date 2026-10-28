@@ -146,6 +146,10 @@ function global(cb: GlobalCallbacks): GlobalTransport {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       openMenu(true);
+    } else if (e.key === 'Escape' && 'open' in menu.dataset) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu(true);
     }
   });
   menu.addEventListener('keydown', (e) => {

@@ -315,6 +315,8 @@ function flushScrub() {
     // Keep holding the local value until the page has caught up with the last one.
     if (pendingScrub !== t) requestAnimationFrame(flushScrub);
     else {
+      // Until the next poll lands, the page is where we just put it.
+      if (snap) snap = { ...snap, paused: true, scrubTime: t };
       pendingScrub = null;
       void poll();
     }
