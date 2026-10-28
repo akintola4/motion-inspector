@@ -43,7 +43,63 @@ let host = '';
 const specs = new Map<string, AnimationSpec>();
 let specSession: string | null = null;
 
-const port = chrome.runtime.connect({ name: 'panel' });
+/**
+ * The background uses this port to reset pages when the panel closes. It
+ * drops when the service worker is stopped or the extension is reloaded, so
+ * reconnect on demand and re-announce the attached tab. After a reload the
+ * old panel's context is invalid and can't reconnect; say so instead.
+ */
+let port: chrome.runtime.Port | null = null;
+let portTabId: number | null = null;
+
+function connectPort(): chrome.runtime.Port | null {
+  if (!chrome.runtime?.id) return null;
+  try {
+    const p = chrome.runtime.connect({ name: 'panel' });
+    p.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError;
+      if (port === p) port = null;
+      if (!chrome.runtime?.id) showReloaded();
+    });
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+function sendAttach(tabId: number) {
+  portTabId = tabId;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    port ??= connectPort();
+    if (!port) {
+      if (!chrome.runtime?.id) showReloaded();
+      return;
+    }
+    try {
+      port.postMessage({ type: 'attach', tabId });
+      return;
+    } catch {
+      port = null;
+    }
+  }
+}
+
+function showReloaded() {
+  if (document.body.dataset.reloaded) return;
+  document.body.dataset.reloaded = 'true';
+  const root = h('div', { class: 'state' });
+  root.append(
+    h('p', { class: 'state-title' }, 'Motion Inspector was reloaded'),
+    h('p', { class: 'state-body' }, 'Close this panel and open it again to keep inspecting.'),
+  );
+  document.getElementById('app')!.replaceChildren(root);
+}
+
+port = connectPort();
+// Re-announce after the worker restarts so the page still gets reset on close.
+setInterval(() => {
+  if (!port && portTabId != null && chrome.runtime?.id) sendAttach(portTabId);
+}, 5000);
 
 /* ------------------------------------------------------------------------ */
 /* DOM                                                                      */
@@ -419,7 +475,7 @@ async function attach(tabId: number, url?: string) {
   host = url ? hostOf(url) : '';
   hostEl.textContent = host;
   status = isRestrictedUrl(url) ? 'restricted' : 'loading';
-  port.postMessage({ type: 'attach', tabId });
+  sendAttach(tabId);
   render();
   if (status !== 'restricted') await poll();
 }
