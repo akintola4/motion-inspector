@@ -46,6 +46,8 @@ export interface AnimationSpec {
   nameIsGenerated?: boolean;
   /** Short unique selector for the target, e.g. ".card:nth-of-type(2)". */
   selector: string;
+  /** Human label for the target, e.g. `div.skeleton`, `button “Save”`. */
+  label: string;
   /** All timing values in milliseconds. */
   duration: number;
   delay: number;
@@ -82,6 +84,7 @@ export interface AnimationEntry {
 export interface JsDrivenEntry {
   id: string;
   selector: string;
+  label: string;
   /** Inline style mutations per second over the last sampling window. */
   rate: number;
   /** Which inline properties were changing, best effort. */
@@ -99,5 +102,25 @@ export interface AgentSnapshot {
   scrubTime: number | null;
   gsapDetected: boolean;
   animations: AnimationEntry[];
+  jsDriven: JsDrivenEntry[];
+}
+
+/** Incremental snapshot: specs only for ids the panel hasn't cached. */
+export interface AgentPoll {
+  version: number;
+  /** Random per injection; a change means cached specs are stale. */
+  session: string;
+  url: string;
+  paused: boolean;
+  rate: number;
+  scrubEnd: number;
+  scrubTime: number | null;
+  gsapDetected: boolean;
+  /** Animation ids in list order. */
+  order: string[];
+  /** Live state per id, same order as `order`. */
+  live: LiveState[];
+  /** Specs the panel didn't pass in `known`. */
+  specs: AnimationSpec[];
   jsDriven: JsDrivenEntry[];
 }

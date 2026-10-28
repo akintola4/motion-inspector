@@ -7,6 +7,7 @@
  * Nothing in here runs until the side panel is open on this tab.
  */
 import type {
+  AgentPoll,
   AgentSnapshot,
   AnimationEntry,
   AnimationKind,
@@ -16,6 +17,7 @@ import type {
   LiveState,
 } from '../lib/types';
 import { uniqueSelector } from '../lib/selector';
+import { elementLabel } from '../lib/label';
 import { GSAP_SPECIAL, KEYFRAME_META, gsapPropsToCss } from '../lib/css-props';
 import { gsapEaseToCss } from '../lib/gsap-eases';
 import { AGENT_VERSION, AGENT_GLOBAL } from '../lib/agent-protocol';
@@ -70,6 +72,8 @@ export default defineUnlistedScript(() => {
   existing?.dispose?.();
 
   const MAX_ENTRIES = 100;
+  /** Changes on every injection, so the panel knows its spec cache is stale. */
+  const session = Math.random().toString(36).slice(2, 10);
   const entries = new Map<string, Entry>();
   const animIds = new WeakMap<Animation, string>();
   const tweenIds = new WeakMap<object, string>();
@@ -190,6 +194,7 @@ export default defineUnlistedScript(() => {
       kind,
       name,
       selector: target ? uniqueSelector(target, effect.pseudoElement) : '(no target)',
+      label: target ? elementLabel(target, effect.pseudoElement) : '(no target)',
       duration: typeof timing.duration === 'number' ? timing.duration : 0,
       delay: timing.delay ?? 0,
       endDelay: timing.endDelay ?? 0,
@@ -287,6 +292,7 @@ export default defineUnlistedScript(() => {
       name: targets.length > 1 ? `${name} ×${targets.length}` : name,
       ...(hasId ? {} : { nameIsGenerated: true }),
       selector: first ? uniqueSelector(first) : '(non-element target)',
+      label: first ? (targets.length > 1 ? `${elementLabel(first)} +${targets.length - 1}` : elementLabel(first)) : '(non-element target)',
       duration: t.duration() * 1000,
       delay: t.delay() * 1000,
       endDelay: 0,
@@ -570,7 +576,7 @@ export default defineUnlistedScript(() => {
       if (perSecond < 8 || !el.isConnected || gsapTargets.has(el)) continue;
       let id = jsIds.get(el);
       if (!id) jsIds.set(el, (id = `j${++counter}`));
-      next.push({ id, selector: uniqueSelector(el), rate: Math.round(perSecond), properties: [...rec.props] });
+      next.push({ id, selector: uniqueSelector(el), label: elementLabel(el), rate: Math.round(perSecond), properties: [...rec.props] });
     }
     jsDriven = next.sort((a, b) => b.rate - a.rate).slice(0, 20);
     styleChanges.clear();
@@ -605,11 +611,13 @@ export default defineUnlistedScript(() => {
   /* Public surface                                                      */
   /* ------------------------------------------------------------------ */
 
-  function snapshot(): AgentSnapshot {
+  function ordered(): Entry[] {
     collect();
-    const list: AnimationEntry[] = [...entries.values()]
-      .sort((a, b) => Number(a.ended) - Number(b.ended) || a.firstSeen - b.firstSeen)
-      .map((e) => ({ spec: e.spec, live: liveState(e) }));
+    return [...entries.values()].sort((a, b) => Number(a.ended) - Number(b.ended) || a.firstSeen - b.firstSeen);
+  }
+
+  function snapshot(): AgentSnapshot {
+    const list: AnimationEntry[] = ordered().map((e) => ({ spec: e.spec, live: liveState(e) }));
     return {
       version: AGENT_VERSION,
       url: location.href,
@@ -619,6 +627,29 @@ export default defineUnlistedScript(() => {
       scrubTime,
       gsapDetected: !!gsap(),
       animations: list,
+      jsDriven,
+    };
+  }
+
+  /**
+   * What the panel polls: specs are static, so only the ones it hasn't seen
+   * are sent; everything else is live state keyed by id.
+   */
+  function poll(knownSession: string | null, known: string[]): AgentPoll {
+    const have = knownSession === session ? new Set(known) : new Set<string>();
+    const list = ordered();
+    return {
+      version: AGENT_VERSION,
+      session,
+      url: location.href,
+      paused,
+      rate,
+      scrubEnd: scrubEnd(),
+      scrubTime,
+      gsapDetected: !!gsap(),
+      order: list.map((e) => e.id),
+      live: list.map((e) => liveState(e)),
+      specs: list.filter((e) => !have.has(e.id)).map((e) => e.spec),
       jsDriven,
     };
   }
@@ -662,6 +693,7 @@ export default defineUnlistedScript(() => {
     version: AGENT_VERSION,
     onAnimate: (a: Animation) => queueMicrotask(() => register(a)),
     snapshot,
+    poll,
     pause: pauseAll,
     play: playAll,
     scrub,
