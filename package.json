@@ -15,7 +15,8 @@
     "postinstall": "wxt prepare && node scripts/extract-geist-assets.mjs",
     "icons": "tsx scripts/generate-icons.mts",
     "audit:layout": "wxt build && tsx scripts/layout-audit.ts",
-    "shots:transport": "wxt build && tsx scripts/transport-shots.ts"
+    "shots:transport": "wxt build && tsx scripts/transport-shots.ts",
+    "media": "wxt build && tsx scripts/media/build.ts"
   },
   "dependencies": {
     "geist": "^1.8.2"
