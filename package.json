@@ -15,12 +15,14 @@
     "postinstall": "wxt prepare && node scripts/extract-geist-assets.mjs",
     "icons": "tsx scripts/generate-icons.mts",
     "audit:layout": "wxt build && tsx scripts/layout-audit.ts",
-    "shots:transport": "wxt build && tsx scripts/transport-shots.ts"
+    "shots:transport": "wxt build && tsx scripts/transport-shots.ts",
+    "media": "wxt build && tsx scripts/media/build.ts"
   },
   "dependencies": {
     "geist": "^1.8.2"
   },
   "devDependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@types/chrome": "^0.3.7",
     "gsap": "^3.15.0",
     "happy-dom": "^21.0.4",

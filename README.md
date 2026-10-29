@@ -1,12 +1,17 @@
 # Motion Inspector
 
-![Motion Inspector: the side panel next to a page, paused mid-animation](./screenshots/overview.png)
+<img src="docs/media/banner.png" width="100%" alt="motion-inspector: Chrome extension · pause, scrub and export any animation · CSS, Motion, GSAP. Line drawing of a browser window with the inspector docked as a side panel: a waveform with a playhead, an easing curve and a list of animations.">
 
 > A Chrome extension that pauses and scrubs the animations running on any page, reads off each one's easing, duration, delay, iterations and animated properties, and exports it as code: CSS, a CSS `linear()` easing, Motion, or GSAP. Built in vanilla TypeScript on WXT.
 
 Chrome DevTools' Animations panel can already inspect and scrub. It doesn't give you code. That's the gap this fills: find an animation you like, pause it, and copy it out in the format you work in.
 
 It lives in Chrome's side panel, so it stays open while you hover, click and scroll the page.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.png">
+  <img alt="Motion Inspector docked in Chrome's side panel next to a page: paused at 1150 ms on the waveform, the page's animations listed and grouped, and the hovered progress bar outlined on the page" src="docs/media/hero-light.png">
+</picture>
 
 ## Screenshots
 
@@ -31,6 +36,8 @@ Click the icon on any page and the side panel opens.
 Needs Chrome 116 or newer (side panel API). Edge, Brave, Arc and other Chromium browsers with side panel support should work the same way; only Chrome has been tested.
 
 ## How to use
+
+![The page animating, then paused from the panel; hovering the waveform previews a time in the readout, dragging it scrubs every animation on the page; the progress bar's animation is opened and its export switched from CSS to Motion to GSAP and copied](docs/media/demo.gif)
 
 - **Open the panel** on the tab you want to inspect. It follows the active tab and re-attaches after reloads.
 - **Pause / play** everything with the button, `Space` or `K`. GSAP's global timeline pauses with it. The dot before the site name in the header says whether the page is **Live** (green) or **Paused** (amber).
@@ -99,6 +106,7 @@ pnpm compile        # tsc --noEmit
 pnpm e2e            # build, then drive the extension in Playwright Chromium
 pnpm fixtures       # serve fixtures/ on http://localhost:4599
 pnpm icons          # rasterize public/icon.svg
+pnpm media          # build, then regenerate the README hero and GIF (docs/media.md)
 ```
 
 `pnpm e2e` loads the built extension into Playwright's Chromium, opens each fixture page, and checks that the panel lists the right animations, that pause freezes `currentTime`, that scrubbing and frame steps set it, that the rate and the keyboard work, that every export tab produces code, and that closing the panel leaves the page running at 1×. It also asserts that nothing moves when you use the transport, that the transport lines up to the pixel (one centre line, one left edge and one right edge), and that the panel never scrolls sideways at side-panel widths from 300 to 600px. `pnpm audit:layout` reports every layout shift in detail (see `docs/layout-audit.md`), and `pnpm shots:transport` saves the transport's states to `screenshots/transport/`. It also writes the screenshots in `screenshots/`. Playwright can't click the toolbar icon or read the real side panel's DOM, so the UI checks run on the same panel page opened in a tab with `?tabId=<fixture tab>`. One extra check opens the real side panel with `chrome.sidePanel.open` and confirms it follows the active tab and injects the inspector.
@@ -133,8 +141,9 @@ lib/
 ├── selector.ts          # short unique selectors
 └── export/              # css, linear, motion, gsap: pure functions, unit-tested
 
-fixtures/                # test pages
+fixtures/                # test pages, and demo.html for the README media
 scripts/                 # fixture server, e2e, icon + font helpers
+scripts/media/           # README hero and GIF generator
 docs/plan.md             # design notes and v1 scope
 docs/transport-research.md  # media player anatomy behind the transport
 ```
