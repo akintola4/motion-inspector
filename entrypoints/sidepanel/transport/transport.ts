@@ -162,7 +162,7 @@ export function createTransport(cb: GlobalCallbacks) {
       return counts.map((c) => (c === 0 ? 0 : 0.15 + 0.85 * (c / top)));
     },
     marks: () => lanes.filter((l) => l.start < end).map((l) => ({ at: l.start, kind: l.kind })),
-    onPreview: (text) => showPreview(info, preview, text),
+    onPreview: (text) => preview.show(info, text, Math.max(4, ms(end).length)),
     tip(v) {
       const on = runningAt(lanes, v);
       const starts = lanes.filter((l) => Math.abs(l.start - v) <= end / 80);
@@ -177,8 +177,8 @@ export function createTransport(cb: GlobalCallbacks) {
      readout's place in the same slot, so it can never cover another control
      and nothing moves. aria-hidden: the slider's own value text says the
      same thing to screen readers. */
-  const preview = h('span', { class: 'tc-preview', 'aria-hidden': 'true' });
-  const info = h('span', { class: 'tc-info', 'data-part': 'time' }, time, preview);
+  const preview = createPreview();
+  const info = h('span', { class: 'tc-info', 'data-part': 'time' }, time, preview.el);
 
   const el = h(
     'section',
@@ -239,10 +239,28 @@ export function createTransport(cb: GlobalCallbacks) {
 
 export type Transport = ReturnType<typeof createTransport>;
 
-/** Swap a readout slot between its readout and a hover preview. */
-function showPreview(slot: HTMLElement, preview: HTMLElement, text: string | null) {
-  if (text != null) setText(preview, text);
-  slot.classList.toggle('is-previewing', text != null);
+/**
+ * The hover preview for a readout slot. Its time sits in a fixed-width
+ * tabular field exactly like the readout's (same digits, right-aligned,
+ * starting at the slot's left edge), so while you hover the number just
+ * changes in place and the rest of the line follows it.
+ */
+function createPreview() {
+  const num = numSlot(4);
+  const rest = h('span', {});
+  const el = h('span', { class: 'tc-preview', 'aria-hidden': 'true' }, num.el, rest);
+  return {
+    el,
+    /** `digits`: the readout's time field width. */
+    show(slot: HTMLElement, text: string | null, digits: number) {
+      slot.classList.toggle('is-previewing', text != null);
+      if (text == null) return;
+      const m = /^(\d+)(.*)$/.exec(text);
+      num.digits(digits);
+      num.set(m ? m[1]! : '');
+      setText(rest, m ? m[2]! : text);
+    },
+  };
 }
 
 /** "372 / 2000 ms · iteration 14" for a value. */
@@ -276,8 +294,8 @@ export function createDetailScrubber(o: DetailOptions): DetailScrubber {
   let model: DetailModel | null = null;
   const curve = iterationCurve(o.spec);
   const readout = detailReadout();
-  const preview = h('span', { class: 'tc-preview', 'aria-hidden': 'true' });
-  const info = h('div', { class: 'tc-info tc-detail-info' }, readout.el, preview);
+  const preview = createPreview();
+  const info = h('div', { class: 'tc-info tc-detail-info' }, readout.el, preview.el);
   const wave = createWave({
     label: 'Scrub this animation',
     valueText: (v) => (model ? (model.word ?? readoutText(model, v).replace(' / ', ' of ').replace(' ms', ' milliseconds').replace(' · ', ', ')) : ''),
@@ -296,7 +314,7 @@ export function createDetailScrubber(o: DetailOptions): DetailScrubber {
       });
     },
     marks: () => (model ? keyframeTimes(o.spec, model).map((at) => ({ at, kind: o.spec.kind })) : []),
-    onPreview: (text) => showPreview(info, preview, text),
+    onPreview: (text) => preview.show(info, text, model ? ms(model.max).length : 4),
     tip(v) {
       if (!model) return `${ms(v)} ms`;
       const p = iterationProgress(o.spec, model.toTime(v));

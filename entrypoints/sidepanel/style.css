@@ -589,9 +589,8 @@ button svg { display: block; flex: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg);
+  color: var(--fg); /* same type as the readout, one step brighter */
   font-size: var(--text-small);
-  font-weight: 500;
   font-variant-numeric: tabular-nums;
   translate: 0 1px; /* same optical nudge as the readout */
   visibility: hidden;

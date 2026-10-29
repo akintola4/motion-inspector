@@ -134,10 +134,16 @@ async function previewChecks(panel: Page, name: string, scrubSel: string) {
           if (b.width && b.height && hit(pr, b)) overlaps.push(o);
         });
         const readoutHidden = [...slot.children].filter((c) => c !== p).every((c) => getComputedStyle(c).visibility === 'hidden');
-        return { text: p.textContent, visible: getComputedStyle(p).visibility === 'visible', inside: pr.left >= sr.left - 0.5 && pr.right <= sr.right + 0.5 && pr.top >= sr.top - 0.5 && pr.bottom <= sr.bottom + 0.5, readoutHidden, overlaps, right: pr.right, cw: document.documentElement.clientWidth };
+        // The preview's time field and the readout's must be the same box: same left edge (where the
+        // text starts) and same right edge (the digits are right-aligned), so the number changes in place.
+        const rf = slot.querySelector(':scope > :not(.tc-preview) .num')!.getBoundingClientRect();
+        const pf = p.querySelector('.num')!.getBoundingClientRect();
+        const field = { left: Math.round((pf.left - rf.left) * 1000) / 1000, right: Math.round((pf.right - rf.right) * 1000) / 1000, startVsSlot: Math.round((pf.left - sr.left) * 1000) / 1000 };
+        return { field, text: p.textContent, visible: getComputedStyle(p).visibility === 'visible', inside: pr.left >= sr.left - 0.5 && pr.right <= sr.right + 0.5 && pr.top >= sr.top - 0.5 && pr.bottom <= sr.bottom + 0.5, readoutHidden, overlaps, right: pr.right, cw: document.documentElement.clientWidth };
       },
       { sel: scrubSel, others },
     );
+    check(`${name} preview at ${f}: time field starts and ends where the readout's does (±0.5px)`, Math.abs(r.field.left) <= 0.5 && Math.abs(r.field.right) <= 0.5 && Math.abs(r.field.startVsSlot) <= 0.5, JSON.stringify(r.field));
     check(`${name} preview at ${f}: in the readout slot, over no control or tab`, r.visible && r.inside && r.readoutHidden && r.overlaps.length === 0 && r.right <= r.cw && !!r.text, JSON.stringify(r));
     const moved = diff(before, await rects(panel, CHROME_ANY));
     check(`no layout shift: ${name} preview at ${f}`, moved.length === 0, moved.join('; '));
