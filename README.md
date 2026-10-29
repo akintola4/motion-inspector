@@ -1,15 +1,17 @@
 # Motion Inspector
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.png">
-  <img alt="Motion Inspector docked in Chrome's side panel next to a page: paused at 1150 ms on the waveform, the page's animations listed and grouped, and the hovered progress bar outlined on the page" src="docs/media/hero-light.png">
-</picture>
+<img src="docs/media/banner.png" width="100%" alt="motion-inspector: Chrome extension · pause, scrub and export any animation · CSS, Motion, GSAP. Line drawing of a browser window with the inspector docked as a side panel: a waveform with a playhead, an easing curve and a list of animations.">
 
 > A Chrome extension that pauses and scrubs the animations running on any page, reads off each one's easing, duration, delay, iterations and animated properties, and exports it as code: CSS, a CSS `linear()` easing, Motion, or GSAP. Built in vanilla TypeScript on WXT.
 
 Chrome DevTools' Animations panel can already inspect and scrub. It doesn't give you code. That's the gap this fills: find an animation you like, pause it, and copy it out in the format you work in.
 
 It lives in Chrome's side panel, so it stays open while you hover, click and scroll the page.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.png">
+  <img alt="Motion Inspector docked in Chrome's side panel next to a page: paused at 1150 ms on the waveform, the page's animations listed and grouped, and the hovered progress bar outlined on the page" src="docs/media/hero-light.png">
+</picture>
 
 ## Screenshots
 

@@ -1,7 +1,7 @@
 // Regenerate the README media in docs/media from the real extension.
 //
 //   pnpm media                # build, capture, render everything
-//   pnpm media --only hero    # or: gif
+//   pnpm media --only hero    # or: gif, banner
 //   pnpm media --render       # re-render from the last capture (layout tweaks)
 //
 // Loads dist/chrome-mv3 into Playwright's Chromium, opens fixtures/demo.html
@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { BANNER, OG, block, circle, path, rect, renderBanner, ART_DIM, type BannerSpec } from './banner';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const EXT = join(ROOT, 'dist', 'chrome-mv3');
@@ -26,7 +27,7 @@ const OUT = join(ROOT, 'docs', 'media');
 
 const { values } = parseArgs({ options: { only: { type: 'string' }, render: { type: 'boolean' } } });
 const only = values.only;
-if (only && only !== 'hero' && only !== 'gif') throw new Error('--only takes hero or gif');
+if (only && !['hero', 'gif', 'banner'].includes(only)) throw new Error('--only takes hero, gif or banner');
 
 /** The demo page is served under a dev-server URL so the panel and the omnibox read like a real project. */
 const ORIGIN = 'http://localhost:3000';
@@ -537,11 +538,93 @@ async function gif(browser: Browser) {
   console.log(`${out}  ${kb(out)}  (${n} frames, ${(n / cap.fps).toFixed(1)}s @ ${cap.fps} fps, ${w}x${h})`);
 }
 
+// ---------------------------------------------------------------- banner
+
+/**
+ * A browser window with a page on the left and the side panel docked on the
+ * right: transport (play, readout, speed), the waveform with its playhead,
+ * an easing curve, three list rows. The second row is hovered and its element
+ * (the page's progress bar) is outlined, with the label tag above it.
+ */
+function bannerArt(): BannerSpec['art'] {
+  const W = 640, H = 440, P = 400; // window size, panel's left edge
+  const wave = [24, 40, 56, 32, 64, 48, 72, 0, 56, 32, 48, 24, 40, 16, 24, 8, 16];
+  const bars = wave
+    .map((h, k) => {
+      const x = 420 + 12 * k;
+      if (k === 7) return block(x, 104, 4, 80, 2) + circle(x + 2, 100, 6, true);
+      return block(x, 144 - h / 2, 4, h, 2, k < 7 ? '#ffffff' : ART_DIM);
+    })
+    .join('');
+  const row = (y: number, on: boolean) =>
+    (on ? rect(412, y - 8, 212, 40, 8) : '') +
+    path(`M424 ${y + 20}C432 ${y + 20} 432 ${y + 4} 440 ${y + 4}`) +
+    block(456, y + 2, 64, 8) +
+    block(456, y + 16, 100, 6, 3, ART_DIM) +
+    block(584, y + 2, 32, 8);
+  return {
+    width: W,
+    height: H,
+    svg: [
+      rect(0, 0, W, H, 20),
+      path(`M0 48H${W}`),
+      circle(28, 24, 6), circle(48, 24, 6), circle(68, 24, 6),
+      rect(96, 12, 240, 24, 12),
+      path(`M${P} 48V${H}`),
+      // page
+      block(32, 72, 72, 16),
+      block(256, 77, 28, 6, 3), block(296, 77, 28, 6, 3), block(336, 77, 32, 6, 3),
+      block(32, 116, 136, 16),
+      rect(32, 152, 336, 104, 12),
+      block(56, 176, 120, 12),
+      rect(280, 172, 64, 20, 10),
+      rect(56, 220, 288, 8, 4),
+      block(56, 220, 192, 8),
+      // the hovered row's element, outlined
+      rect(44, 208, 312, 32, 6),
+      rect(32, 280, 156, 128, 12),
+      block(48, 296, 124, 56, 6),
+      block(48, 368, 124, 8), block(48, 384, 84, 8),
+      rect(212, 280, 156, 128, 12),
+      block(228, 300, 76, 8), rect(320, 296, 32, 16, 8), circle(344, 304, 4, true),
+      block(228, 336, 92, 8), block(228, 368, 64, 8),
+      // panel
+      block(420, 68, 24, 24, 6),
+      block(456, 76, 64, 8),
+      rect(568, 68, 48, 24, 6),
+      bars,
+      rect(420, 200, 196, 96, 10),
+      path('M436 280C516 280 532 216 600 216'),
+      circle(436, 280, 4), circle(600, 216, 4),
+      row(316, false), row(356, true), row(396, false),
+    ].join(''),
+  };
+}
+
+const BANNER_SPEC = (): BannerSpec => ({
+  tagline: 'Chrome extension · pause, scrub and export any animation · CSS, Motion, GSAP.',
+  lines: ['motion-', 'inspector'],
+  art: bannerArt(),
+});
+
+async function banner(browser: Browser) {
+  for (const [name, out] of [['banner', BANNER], ['og', OG]] as const) {
+    const raw = join(STAGE, `${name}-raw.png`);
+    await renderBanner(browser, BANNER_SPEC(), out, ROOT, raw);
+    const file = join(OUT, `${name}.png`);
+    // Everything is grey (the background is #0c0c0d), so an 8-bit greyscale
+    // PNG keeps every anti-aliased edge and is a fraction of the RGBA size.
+    ffmpeg(['-i', raw, '-pix_fmt', 'gray', '-compression_level', '9', file]);
+    const w = 1600 * out.scale * out.dpr, h = Math.round(out.height * out.scale) * out.dpr;
+    console.log(`${file}  ${kb(file)}  ${w}x${h}`);
+  }
+}
+
 // ---------------------------------------------------------------- main
 
 mkdirSync(STAGE, { recursive: true });
 mkdirSync(OUT, { recursive: true });
-if (!values.render) {
+if (!values.render && only !== 'banner') {
   if (!only || only === 'hero') for (const t of ['light', 'dark'] as const) await captureHero(t);
   if (!only || only === 'gif') await captureGif();
 }
@@ -549,6 +632,7 @@ const browser = await chromium.launch();
 try {
   if (!only || only === 'hero') await hero(browser);
   if (!only || only === 'gif') await gif(browser);
+  if (!only || only === 'banner') await banner(browser);
 } finally {
   await browser.close();
 }
