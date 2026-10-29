@@ -109,6 +109,45 @@ async function pickRate(panel: Page, r: number) {
   await panel.click(`.tc-item[data-rate="${r}"]`);
 }
 
+/**
+ * Hover the scrubber at 1%, 50% and 99.5%: the preview must show in place of
+ * the readout and its box must not touch any control, the scrubber or the
+ * filter tabs. Also checks it moves nothing.
+ */
+async function previewChecks(panel: Page, name: string, scrubSel: string) {
+  const box = (await panel.locator(scrubSel).boundingBox())!;
+  const others = ['.transport [data-part=play]', '.transport [data-part=restart]', '.transport [data-part=speed]', '.transport [data-part=scrubber]', '.list-bar .seg-btn', '.detail-bar', '.back', '.scrub-one [data-part=scrubber]', '.ease-row', '.facts'];
+  for (const f of [0.01, 0.5, 0.995]) {
+    const before = await rects(panel, CHROME_ANY);
+    await panel.mouse.move(box.x + box.width * f, box.y + box.height / 2);
+    await sleep(150);
+    const r = await panel.evaluate(
+      ({ sel, others }) => {
+        const slot = document.querySelector(sel)!.closest('.transport, .scrub-one')!.querySelector('.tc-info')!;
+        const p = slot.querySelector('.tc-preview')!;
+        const pr = p.getBoundingClientRect();
+        const sr = slot.getBoundingClientRect();
+        const hit = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        const overlaps: string[] = [];
+        for (const o of others) document.querySelectorAll(o).forEach((el) => {
+          const b = el.getBoundingClientRect();
+          if (b.width && b.height && hit(pr, b)) overlaps.push(o);
+        });
+        const readoutHidden = [...slot.children].filter((c) => c !== p).every((c) => getComputedStyle(c).visibility === 'hidden');
+        return { text: p.textContent, visible: getComputedStyle(p).visibility === 'visible', inside: pr.left >= sr.left - 0.5 && pr.right <= sr.right + 0.5 && pr.top >= sr.top - 0.5 && pr.bottom <= sr.bottom + 0.5, readoutHidden, overlaps, right: pr.right, cw: document.documentElement.clientWidth };
+      },
+      { sel: scrubSel, others },
+    );
+    check(`${name} preview at ${f}: in the readout slot, over no control or tab`, r.visible && r.inside && r.readoutHidden && r.overlaps.length === 0 && r.right <= r.cw && !!r.text, JSON.stringify(r));
+    const moved = diff(before, await rects(panel, CHROME_ANY));
+    check(`no layout shift: ${name} preview at ${f}`, moved.length === 0, moved.join('; '));
+  }
+  await panel.mouse.move(2, 300);
+  await sleep(150);
+  const back = await panel.$eval(scrubSel, (el) => !el.closest('.transport, .scrub-one')!.querySelector('.tc-info')!.classList.contains('is-previewing'));
+  check(`${name} readout comes back when the pointer leaves`, back);
+}
+
 const MARKERS: Record<string, RegExp> = {
   css: /@keyframes|transition:/,
   linear: /linear\(|steps\(|: linear;/,
@@ -555,18 +594,7 @@ async function main() {
     const focusRing = await panel.$eval(G, (el) => el.matches(':focus-visible'));
     check(`${T} no focus ring after a pointer drag`, !focusRing);
     await noShift(panel, `${T} hover over the scrubber keeps chrome still`, CHROME_ANY, () => panel.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2));
-    for (const f of [0.01, 0.5, 0.995]) {
-      await panel.mouse.move(box.x + box.width * f, box.y + box.height / 2);
-      await sleep(200);
-      const tip = await panel.evaluate(() => {
-        const t = document.querySelector('.transport .tc-tip')!.getBoundingClientRect();
-        const w = document.querySelector('.transport .tc-wave')!.getBoundingClientRect();
-        const r = document.querySelector('.transport [data-part=time]')!.getBoundingClientRect();
-        const o = getComputedStyle(document.querySelector('.transport .tc-tip')!).opacity;
-        return { left: t.left, right: t.right, top: t.top, waveBottom: w.bottom, waveLeft: w.left, waveRight: w.right, readoutBottom: r.bottom, o, text: document.querySelector('.transport .tc-tip')!.textContent };
-      });
-      check(`${T} hover preview at ${f}: below the bars, inside the scrubber, clear of the readout`, tip.o === '1' && tip.top >= tip.waveBottom && tip.top > tip.readoutBottom && tip.left >= tip.waveLeft - 0.5 && tip.right <= tip.waveRight + 0.5, JSON.stringify(tip));
-    }
+    await previewChecks(panel, `${T} global`, G);
     await panel.mouse.move(200, 700);
 
     // Detail scrubber on the infinite spring.
@@ -653,9 +681,11 @@ async function main() {
       const end = await fits();
       check(`${width}px: no overflow paused at the end with the hover preview`, end.sw <= end.cw && end.wide.length === 0, JSON.stringify(end));
       await panel.mouse.move(5, 300);
+      if ([300, 360, 600].includes(width)) await previewChecks(panel, `${width}px global`, '.transport [data-part=scrubber]');
       await panel.locator('.rows .row[data-id]').first().click();
       await panel.waitForSelector('.scrub-one [data-part=scrubber]');
       await sleep(400);
+      if ([300, 360, 600].includes(width)) await previewChecks(panel, `${width}px detail`, '.scrub-one [data-part=scrubber]');
       const det = await fits();
       check(`${width}px: no overflow in the detail view`, det.sw <= det.cw && det.wide.length === 0, JSON.stringify(det));
       await panel.keyboard.press('Escape');

@@ -232,8 +232,14 @@ Option C (Waveform) was picked and is now the only transport (0.3.0).
 Options A and B and the preview switch were removed. Changes from the
 preview, after review in the real side panel:
 
-- The hover preview sits below the bars on a solid surface, clamped inside
-  the scrubber, so it never covers the readout or leaves the panel.
+- There's no floating tooltip. While you point at the waveform, the preview
+  (`1260 ms · 2 running`) takes the readout's place in the readout's own
+  slot, between restart and the speed menu (YouTube shows the hover time in
+  much the same spot). A tooltip below the bars covered the filter tabs, and
+  one above them would cover the readout and controls at 300px. In the slot
+  it can't overlap anything, it costs no height, and a long animation name
+  ends in an ellipsis. Screen readers get the same information from the
+  slider's value text.
 - Bars, gaps and the playhead are laid out in whole device pixels from a
   ResizeObserver. The first bar starts on the left gutter and the last ends
   on the right gutter. When the width can't be split evenly, a few gaps get

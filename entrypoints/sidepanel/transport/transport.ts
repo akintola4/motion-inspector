@@ -54,7 +54,7 @@ export function createTransport(cb: GlobalCallbacks) {
   endN.el.classList.add('tc-end');
   const time = h(
     'span',
-    { class: 'tc-time', 'data-part': 'time' },
+    { class: 'tc-time' },
     h('span', { class: 'tc-cur' }, cur.el, liveWord),
     h('span', { class: 'tc-sep' }, ' / '),
     endN.el,
@@ -162,6 +162,7 @@ export function createTransport(cb: GlobalCallbacks) {
       return counts.map((c) => (c === 0 ? 0 : 0.15 + 0.85 * (c / top)));
     },
     marks: () => lanes.filter((l) => l.start < end).map((l) => ({ at: l.start, kind: l.kind })),
+    onPreview: (text) => showPreview(info, preview, text),
     tip(v) {
       const on = runningAt(lanes, v);
       const starts = lanes.filter((l) => Math.abs(l.start - v) <= end / 80);
@@ -171,10 +172,18 @@ export function createTransport(cb: GlobalCallbacks) {
   });
   const s = wave.s;
 
+  /* The readout's slot: everything between restart and the speed menu. While
+     you point at the waveform, the preview ("1260 ms · 2 running") takes the
+     readout's place in the same slot, so it can never cover another control
+     and nothing moves. aria-hidden: the slider's own value text says the
+     same thing to screen readers. */
+  const preview = h('span', { class: 'tc-preview', 'aria-hidden': 'true' });
+  const info = h('span', { class: 'tc-info', 'data-part': 'time' }, time, preview);
+
   const el = h(
     'section',
     { class: 'transport', 'data-state': 'idle' },
-    h('div', { class: 'tc-bar' }, play.el, restart, time, h('span', { class: 'tc-flex' }), speedWrap),
+    h('div', { class: 'tc-bar' }, play.el, restart, info, speedWrap),
     wave.el,
   );
 
@@ -230,6 +239,12 @@ export function createTransport(cb: GlobalCallbacks) {
 
 export type Transport = ReturnType<typeof createTransport>;
 
+/** Swap a readout slot between its readout and a hover preview. */
+function showPreview(slot: HTMLElement, preview: HTMLElement, text: string | null) {
+  if (text != null) setText(preview, text);
+  slot.classList.toggle('is-previewing', text != null);
+}
+
 /** "372 / 2000 ms · iteration 14" for a value. */
 function readoutText(m: DetailModel, v: number) {
   return m.word ?? m.label.replace(/^\d+/, ms(v));
@@ -261,6 +276,8 @@ export function createDetailScrubber(o: DetailOptions): DetailScrubber {
   let model: DetailModel | null = null;
   const curve = iterationCurve(o.spec);
   const readout = detailReadout();
+  const preview = h('span', { class: 'tc-preview', 'aria-hidden': 'true' });
+  const info = h('div', { class: 'tc-info tc-detail-info' }, readout.el, preview);
   const wave = createWave({
     label: 'Scrub this animation',
     valueText: (v) => (model ? (model.word ?? readoutText(model, v).replace(' / ', ' of ').replace(' ms', ' milliseconds').replace(' · ', ', ')) : ''),
@@ -279,6 +296,7 @@ export function createDetailScrubber(o: DetailOptions): DetailScrubber {
       });
     },
     marks: () => (model ? keyframeTimes(o.spec, model).map((at) => ({ at, kind: o.spec.kind })) : []),
+    onPreview: (text) => showPreview(info, preview, text),
     tip(v) {
       if (!model) return `${ms(v)} ms`;
       const p = iterationProgress(o.spec, model.toTime(v));
@@ -286,7 +304,7 @@ export function createDetailScrubber(o: DetailOptions): DetailScrubber {
     },
   });
   wave.el.classList.add('tc-detail-wave');
-  const el = h('div', { class: 'scrub-one tc-detail' }, wave.el, readout.el);
+  const el = h('div', { class: 'scrub-one tc-detail' }, wave.el, info);
   let sig = '';
   return {
     el,

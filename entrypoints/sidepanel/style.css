@@ -581,7 +581,23 @@ button svg { display: block; flex: none; }
    Transport controls and waveform (transport/transport.ts, waveform.ts)
    ========================================================================== */
 .tc-bar { display: flex; align-items: center; gap: 8px; height: 28px; min-width: 0; }
-.tc-flex { flex: 1; min-width: 0; }
+/* Readout slot: fills the row between restart and the speed menu. The
+   hover preview replaces the readout in place (same box, ellipsis if long). */
+.tc-info { position: relative; flex: 1; align-self: stretch; min-width: 0; display: grid; align-items: center; }
+.tc-info > * { grid-area: 1 / 1; min-width: 0; }
+.tc-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  translate: 0 1px; /* same optical nudge as the readout */
+  visibility: hidden;
+}
+.tc-info.is-previewing > .tc-preview { visibility: visible; }
+.tc-info.is-previewing > :not(.tc-preview) { visibility: hidden; }
 
 /* Readout: "810 / 1800 ms" in tabular figures, padded with figure spaces. */
 .tc-time {
@@ -715,35 +731,15 @@ button svg { display: block; flex: none; }
 .transport[data-state='live'] .tc-b { background: var(--border); }
 /* Start markers (keyframes in the detail view), one per bar, in the kind colour. */
 .tc-mark { position: absolute; top: 0; left: 0; width: var(--bar, 3px); height: 3px; border-radius: 1.5px; background: var(--kind, var(--fg-muted)); }
-/* Hover preview: below the bars, on a solid surface, clamped inside the scrubber. */
-.tc-tip {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  padding: 3px 7px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elev);
-  color: var(--fg);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  font-size: var(--text-label);
-  font-weight: 500;
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
 @media (hover: hover) and (pointer: fine) {
-  .tc-wave.is-hovering:not([aria-disabled='true']) .tc-tip { opacity: 1; }
   .tc-wave.is-hovering:not([data-pressed]) .tc-hover { opacity: 0.6; }
 }
-.tc-wave[data-pressed] .tc-tip { opacity: 1; }
+
 
 /* Detail: the same waveform from the animation's eased value, readout below. */
 .scrub-one { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tc-readout { display: block; }
+.tc-detail-info .tc-preview { translate: none; }
 .tc-detail.is-word .tc-played, .tc-detail.is-word .tc-ph { visibility: hidden; }
 
 /* ==========================================================================

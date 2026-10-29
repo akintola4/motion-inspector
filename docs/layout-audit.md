@@ -72,6 +72,7 @@ What changed to get there:
 | --- | --- | --- |
 | Side panel scrolled sideways, left half cut off | Full-width playhead layers moved with `translateX(p × 100%)` reached past the right edge near the end of the timeline (scrollWidth 684 at 360px) | Playhead, hover line and preview are placed in pixels inside the waveform; the waveform clips on x; `overflow-x: hidden` on html/body as a safety net only |
 | Waveform logged layout shifts on every poll | Bar heights changed as transitions started and ended | Bars are full height and clipped to their value (`clip-path: inset(… round …)`): repaint, no reflow; ended animations stay in the waveform so it keeps its shape |
+| Hover tooltip covered the filter tabs | It floated below the bars | The preview replaces the readout in the readout's own slot (e2e: no overlap with any control or tab at 1%, 50%, 99.5% and 300, 360, 600px) |
 | Readout slid as digits changed | Figure spaces (U+2007) in Geist are narrower than tabular digits | Fixed-width slots (hidden ghost of 8s) |
 | Filter tabs resized when a count went 99 → 100 | Slot width followed each count | Slot width only grows, shared by all three tabs |
 

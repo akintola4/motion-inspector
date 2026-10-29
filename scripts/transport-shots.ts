@@ -134,6 +134,19 @@ async function main() {
         await sleep(500);
         await panel.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await panel.screenshot({ path: join(OUT, `${theme}-narrow-${width}-end.png`) });
+        // Hover preview: it takes the readout's place in the first row.
+        const wb = (await panel.locator('.transport [data-part=scrubber]').boundingBox())!;
+        await panel.mouse.move(wb.x + wb.width * 0.5, wb.y + 14);
+        await sleep(300);
+        await shotGlobal(panel, `${theme}-narrow-${width}-hover`, 60);
+        await panel.mouse.move(2, 400);
+        await panel.locator('.rows .row[data-id]').first().click();
+        await panel.waitForSelector('.curve-card');
+        await sleep(500);
+        const db = (await panel.locator('.scrub-one [data-part=scrubber]').boundingBox())!;
+        await panel.mouse.move(db.x + db.width * 0.4, db.y + 14);
+        await sleep(300);
+        await shotDetail(panel, `${theme}-narrow-${width}-detail-hover`);
         await panel.close();
       }
     }

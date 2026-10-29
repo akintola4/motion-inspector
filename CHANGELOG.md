@@ -18,8 +18,10 @@ A new transport, picked from three options built from
   coloured by kind. Played bars are solid, the rest muted, split exactly
   at a blue playhead. While the page is live the bars sit still with no
   playhead, so it never reads as a loading bar.
-- **Hover preview**: the time and what runs there, on a solid surface below
-  the bars, kept inside the panel.
+- **Hover preview**: the time and what runs there (`1260 ms · 2 running`)
+  replaces the readout in its own slot while you point at the waveform, so
+  it never covers a control or the filter tabs and nothing moves. The
+  detail scrubber does the same with its readout.
 - **Speed is a menu** (0.1×, 0.25×, 0.5×, 1×) instead of a four-button
   segment: a compact trigger, arrow keys inside, Escape closes it and
   focus goes back to the trigger.

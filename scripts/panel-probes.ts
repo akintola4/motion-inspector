@@ -158,7 +158,7 @@ export async function measureAlignment(page: Page): Promise<Alignment> {
       detailScrubberHeight = r3(ds.height);
     }
 
-    const readoutCap = textCentres(document.querySelector<HTMLElement>('.transport [data-part=time] > .tc-end .num-value')!).cap;
+    const readoutCap = textCentres(document.querySelector<HTMLElement>('.transport .tc-time > .tc-end .num-value')!).cap;
     const speedCap = textCentres(document.querySelector<HTMLElement>('.transport .tc-speed-val')!).cap;
     const caret = mid(document.querySelectorAll('.transport .tc-speed-group')[1]!.querySelector('.tc-caret svg')!.getBoundingClientRect());
     const start = rect('.transport [data-align=start]');

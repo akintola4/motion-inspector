@@ -1,5 +1,6 @@
 /**
- * The waveform scrubber (SoundCloud's waveform, YouTube's hover preview).
+ * The waveform scrubber (SoundCloud's waveform, YouTube's hover preview,
+ * shown in the readout's slot rather than as a floating tooltip).
  *
  * Geometry is in device pixels. A ResizeObserver reads the width and lays
  * out bars (about 3px, gaps about 2px, never fewer than 24) that fill it
@@ -16,7 +17,7 @@
  * (caps of radius = half the bar width), so a data change repaints but never
  * reflows or registers as a layout shift.
  */
-import { h, setText } from '../h';
+import { h } from '../h';
 import { createScrubber, type Scrubber } from './scrubber';
 
 const MIN_BARS = 24;
@@ -83,7 +84,9 @@ export interface WaveOptions {
   heights(n: number): number[];
   /** Markers under the bars, snapped to the bar they fall in. */
   marks(): Mark[];
-  /** Hover preview text for a value. */
+  /** Hover preview: text for a value, or null when the pointer leaves. The
+      caller shows it in its readout slot (there is no floating tooltip). */
+  onPreview(text: string | null): void;
   tip(value: number): string;
 }
 
@@ -101,8 +104,7 @@ export function createWave(o: WaveOptions): Wave {
   const hover = h('span', { class: 'tc-hover' });
   const field = h('div', { class: 'tc-field', 'aria-hidden': 'true' }, base, played, hover, head);
   const marks = h('div', { class: 'tc-marks', 'aria-hidden': 'true' });
-  const tip = h('span', { class: 'tc-tip', 'aria-hidden': 'true' });
-  const el = h('div', { class: 'tc-wave', 'data-part': 'scrubber' }, field, marks, tip);
+  const el = h('div', { class: 'tc-wave', 'data-part': 'scrubber' }, field, marks);
 
   let width = 0;
   let dpr = 0;
@@ -127,18 +129,12 @@ export function createWave(o: WaveOptions): Wave {
     onHover(v, hp) {
       if (v == null || !run) {
         el.classList.remove('is-hovering');
-        tip.style.transform = ''; // a hidden tip parked off to the right still counts as overflow
+        o.onPreview(null);
         return;
       }
       el.classList.add('is-hovering');
-      const x = snap(hp * run);
-      hover.style.transform = `translateX(${x}px)`;
-      setText(tip, o.tip(v));
-      // Centre under the pointer, clamped inside the scrubber so it never
-      // reaches past the panel's edges.
-      const w = tip.offsetWidth;
-      const tx = Math.max(0, Math.min(width - w, left + x - Math.round(w / 2)));
-      tip.style.transform = `translateX(${tx}px)`;
+      hover.style.transform = `translateX(${snap(hp * run)}px)`;
+      o.onPreview(o.tip(v));
     },
   });
 
@@ -154,7 +150,6 @@ export function createWave(o: WaveOptions): Wave {
     if (!w || (w === width && d === dpr)) return;
     width = w;
     dpr = d;
-    tip.style.transform = '';
     const f = fitBars(w, d);
     fit = f;
     run = f.run;
