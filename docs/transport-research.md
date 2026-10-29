@@ -225,3 +225,24 @@ keyframe markers as chapters.
 - Rive, Timeline: https://rive.app/docs/editor/animate-mode/timeline
 - Theatre.js, keyboard and mouse controls: https://www.theatrejs.com/docs/latest/manual/keyboard-shortcuts
 - W3C APG, Media Seek Slider: https://www.w3.org/WAI/ARIA/apg/patterns/slider/examples/slider-seek/
+
+## Outcome
+
+Option C (Waveform) was picked and is now the only transport (0.3.0).
+Options A and B and the preview switch were removed. Changes from the
+preview, after review in the real side panel:
+
+- The hover preview sits below the bars on a solid surface, clamped inside
+  the scrubber, so it never covers the readout or leaves the panel.
+- Bars, gaps and the playhead are laid out in whole device pixels from a
+  ResizeObserver. The first bar starts on the left gutter and the last ends
+  on the right gutter. When the width can't be split evenly, a few gaps get
+  one extra device pixel.
+- Start markers stay. At the narrowest width (300px, about 55 bars) one
+  marker per bar is still readable. They're coloured by animation kind, and
+  the hover preview names what starts there (`13 ms · slide +4 starts`).
+- The readout uses fixed-width tabular slots with no leading zeros. Geist's
+  figure space (U+2007) turned out narrower than its tabular digits, so
+  padding with it would still have shifted the text.
+- Speed stays a menu. A four-button segment doesn't fit next to play,
+  restart and the readout at 300px.

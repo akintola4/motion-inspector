@@ -53,6 +53,27 @@ e2e uses the same probes for its no-shift and alignment assertions.
 | Expand / collapse `pulse ×12` | Rows below the group | That's the expansion. Instant on purpose (see Motion). |
 | Opening a different animation | Kind badge width (`WAAPI` vs `GSAP`) on the right of the detail bar | Different content, not movement. The back button never moves. |
 | An animation ends while you're not pointing at the list | Rows below it move up, 3s after it ended | The Live list has to reflect the page eventually. It never reorders, never moves while you point at it, and short re-triggers no longer cause it. |
+| Speed 1× ↔ 0.25× (menu, J / L) | The label glyphs inside the speed trigger re-centre (Chrome logs a layout-shift entry with score 0) | The trigger is sized to its widest state and keeps its box; the label and chevron are centred as a group, by request, so a shorter label sits centred rather than pushed right. Nothing outside the button moves (asserted in e2e). |
+| A group's count changes (`×12` → `×8`) on narrow panels | The count text in that row | Content, not movement. |
+
+## Transport (0.3.0)
+
+The audit runs the transport through: load, live polling, pause / play
+(button and Space), speed from the menu and from J / L, pause plus frame
+steps (`.` ×3, `,`), hovering and dragging the waveform, global scrub,
+drill-in and the detail scrubber, then the same page at 300, 320, 360,
+400, 480 and 600px with about 100 animations (`fixtures/many.html`).
+Transport parts are tagged `data-part` and all tracked; none of them
+moved. Zero horizontal overflow at every width.
+
+What changed to get there:
+
+| Problem | Cause | Fix |
+| --- | --- | --- |
+| Side panel scrolled sideways, left half cut off | Full-width playhead layers moved with `translateX(p × 100%)` reached past the right edge near the end of the timeline (scrollWidth 684 at 360px) | Playhead, hover line and preview are placed in pixels inside the waveform; the waveform clips on x; `overflow-x: hidden` on html/body as a safety net only |
+| Waveform logged layout shifts on every poll | Bar heights changed as transitions started and ended | Bars are full height and clipped to their value (`clip-path: inset(… round …)`): repaint, no reflow; ended animations stay in the waveform so it keeps its shape |
+| Readout slid as digits changed | Figure spaces (U+2007) in Geist are narrower than tabular digits | Fixed-width slots (hidden ghost of 8s) |
+| Filter tabs resized when a count went 99 → 100 | Slot width followed each count | Slot width only grows, shared by all three tabs |
 
 ## Alignment (px, from `scripts/panel-probes.ts`)
 
@@ -61,12 +82,16 @@ e2e uses the same probes for its no-shift and alignment assertions.
 | Status dot centre − host cap-height centre | −0.33 (dot box nudged −1px; line-box centre was +0.67) |
 | Status dot centre − host x-height centre | −1.40 (cap height chosen: the host has digits and ascenders) |
 | Back chevron centre − label cap-height centre | −0.33 (same offset as the dot) |
-| Speed control / restart centre − play centre | 0 / 0 |
-| Dot box left − play left | 0 (the halo's outer edge is on the 12px gutter) |
-| Theme toggle right − restart right | 0 (header right padding moved from 8px to the 12px gutter) |
+| Restart / speed box centre − play centre | 0.008 (sub-pixel from the text line box) |
+| Readout digits' cap centre − play centre | +0.33 (readout nudged 1px down; line-box centre was −0.67) |
+| Speed label cap centre − play centre | +0.33 (same nudge) |
+| Speed chevron centre − label cap centre | −0.35 |
+| Dot box left − play left − first bar left | 0 / 0 at 300, 320, 360, 400, 480, 600px |
+| Theme toggle right − speed right − last bar right | 0 / 0 at the same widths |
+| Bars | One width (3px, whole device pixels); gaps 2px, or one device pixel wider where the width can't be split evenly |
 | Rendered content area − canvas ascent + descent | 0 (sanity check that the metrics match the drawn font) |
 
-e2e asserts dot and chevron within ±0.5px and the transport on one centre line.
+e2e asserts all of these within ±0.5px.
 
 ## Performance per 250ms poll
 

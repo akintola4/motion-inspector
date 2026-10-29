@@ -6,6 +6,49 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-29
+
+A new transport, picked from three options built from
+`docs/transport-research.md` (anatomy of music and video player controls).
+
+### Changed
+
+- **The timeline is a waveform.** Bar height is how many animations run at
+  that moment; small marks under the bars show where animations start,
+  coloured by kind. Played bars are solid, the rest muted, split exactly
+  at a blue playhead. While the page is live the bars sit still with no
+  playhead, so it never reads as a loading bar.
+- **Hover preview**: the time and what runs there, on a solid surface below
+  the bars, kept inside the panel.
+- **Speed is a menu** (0.1×, 0.25×, 0.5×, 1×) instead of a four-button
+  segment: a compact trigger, arrow keys inside, Escape closes it and
+  focus goes back to the trigger.
+- **Readout** `810 / 1800 ms` in fixed-width tabular slots, no leading
+  zeros; `810 / 1800` on panels narrower than 340px.
+- **Detail scrubber** uses the same waveform, drawn from the animation's
+  eased value with its keyframes marked, over `372 / 2000 ms · iteration 14`.
+
+### Added
+
+- Keys: `K` play/pause, `,` `.` and `←` `→` one frame (`Shift` for 10),
+  `J` / `L` slower / faster, `R` restart; `Home`, `End`, `Page Up`,
+  `Page Down` on the focused scrubber.
+- Scrubbers are `role="slider"` with `aria-valuetext` that reads the time
+  and what's running (`400 of 1800 milliseconds, 5 running: pulse, drop,
+  slide and 2 more`), a 34px hit area, and a focus ring for keyboard focus
+  only.
+- `fixtures/many.html` (about 100 animations, long names) and
+  `pnpm shots:transport`.
+
+### Fixed
+
+- **The panel could scroll sideways** in a real side panel, cutting off
+  the left half: the playhead layers reached past the right edge once you
+  scrubbed near the end. The waveform now lays out in whole device pixels
+  from a ResizeObserver and never has a width of its own; e2e checks 300,
+  320, 360, 400, 480 and 600px for horizontal overflow.
+- Filter counts no longer resize their tabs when a count crosses 99 → 100.
+
 Nothing moves unless you moved it. Measured with `pnpm audit:layout`;
 findings in `docs/layout-audit.md`.
 

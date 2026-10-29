@@ -33,13 +33,14 @@ Needs Chrome 116 or newer (side panel API). Edge, Brave, Arc and other Chromium 
 ## How to use
 
 - **Open the panel** on the tab you want to inspect. It follows the active tab and re-attaches after reloads.
-- **Pause / play** everything with the button or `Space`. GSAP's global timeline pauses with it. The dot before the site name in the header says whether the page is **Live** (green) or **Paused** (amber).
-- **Scrub** with the timeline. While the page is live the timeline sits idle (dashed, no playhead); grab it and everything pauses and moves to the same time from its start, the model DevTools uses.
-- **Slow it down** with 0.1×, 0.25× or 0.5×. The rate also applies to animations that start later.
+- **Pause / play** everything with the button, `Space` or `K`. GSAP's global timeline pauses with it. The dot before the site name in the header says whether the page is **Live** (green) or **Paused** (amber).
+- **Scrub** with the waveform. Its bars show how many animations are running at each moment of the timeline, and the small coloured marks under it show where animations start (coloured by kind: CSS, transition, WAAPI, GSAP). While the page is live the bars sit still in one muted tone with no playhead. Grab them and everything pauses and moves to the same time from its start, the model DevTools uses; the played part turns solid and a blue playhead marks the time. Hover to preview a time and what runs there without moving anything.
+- **Step frames** with `,` / `.` or `←` / `→` (`Shift` for 10 frames). On the focused scrubber, `Home` / `End` jump to the ends and `Page Up` / `Page Down` move 10%. `R` restarts.
+- **Slow it down** from the speed menu (0.1×, 0.25×, 0.5×, 1×) or with `J` (slower) and `L` (faster, and plays). The rate also applies to animations that start later.
 - **The list** shows what's running now (**Live**); **Ended** and **All** are one click away. Identical animations on many elements fold into one row (`pulse ×12`) that expands to the elements, with their size so you can tell them apart. Zero-length animations are hidden behind a note. Rows name the element the way you would (`button.chip “Design”`, `div in article.card`), not with a selector path. Hover a row to outline its element on the page; `↑`/`↓` move between rows, `→`/`←` open and close a group, `Enter` opens.
 - **Open an animation** to drill into it (`Escape` or the back button returns to the list where you left it). The element stays outlined on the page and the detail view shows:
   - the easing curve with a playhead, and the easing as written;
-  - a scrubber for that one animation. Loops scrub within the current iteration and say which one (`372 / 2000 ms · iteration 14`);
+  - a scrubber for that one animation, drawn as a waveform of its eased value with its keyframes marked underneath. Loops scrub within the current iteration and say which one (`372 / 2000 ms · iteration 14`);
   - duration, delay, iterations, direction, fill, end delay;
   - the full selector, copyable;
   - the export, in four tabs: **CSS**, **linear()**, **Motion**, **GSAP**, with a Copy button;
@@ -100,9 +101,9 @@ pnpm fixtures       # serve fixtures/ on http://localhost:4599
 pnpm icons          # rasterize public/icon.svg
 ```
 
-`pnpm e2e` loads the built extension into Playwright's Chromium, opens each fixture page, and checks that the panel lists the right animations, that pause freezes `currentTime`, that scrubbing sets it, that the rate applies, that every export tab produces code, and that closing the panel leaves the page running at 1×. It also writes the screenshots in `screenshots/`. Playwright can't click the toolbar icon or read the real side panel's DOM, so the UI checks run on the same panel page opened in a tab with `?tabId=<fixture tab>`. One extra check opens the real side panel with `chrome.sidePanel.open` and confirms it follows the active tab and injects the inspector.
+`pnpm e2e` loads the built extension into Playwright's Chromium, opens each fixture page, and checks that the panel lists the right animations, that pause freezes `currentTime`, that scrubbing and frame steps set it, that the rate and the keyboard work, that every export tab produces code, and that closing the panel leaves the page running at 1×. It also asserts that nothing moves when you use the transport, that the transport lines up to the pixel (one centre line, one left edge and one right edge), and that the panel never scrolls sideways at side-panel widths from 300 to 600px. `pnpm audit:layout` reports every layout shift in detail (see `docs/layout-audit.md`), and `pnpm shots:transport` saves the transport's states to `screenshots/transport/`. It also writes the screenshots in `screenshots/`. Playwright can't click the toolbar icon or read the real side panel's DOM, so the UI checks run on the same panel page opened in a tab with `?tabId=<fixture tab>`. One extra check opens the real side panel with `chrome.sidePanel.open` and confirms it follows the active tab and injects the inspector.
 
-The fixtures cover CSS `@keyframes`, CSS transitions, WAAPI with a cubic-bezier, a spring via `linear()`, a GSAP timeline, Motion's `animate()`, and a noisy Tailwind-style page (twelve `animate-pulse` skeletons, chips flipping every 180 ms, zero-length WAAPI calls) that checks grouping, the ended filter and the iteration readout. GSAP and Motion are served from `node_modules`, no CDN.
+The fixtures cover CSS `@keyframes`, CSS transitions, WAAPI with a cubic-bezier, a spring via `linear()`, a GSAP timeline, Motion's `animate()`, a noisy Tailwind-style page (twelve `animate-pulse` skeletons, chips flipping every 180 ms, zero-length WAAPI calls) that checks grouping, the ended filter and the iteration readout, and a page with about 100 animations and long names for narrow panels. GSAP and Motion are served from `node_modules`, no CDN.
 
 ## Architecture
 
@@ -112,7 +113,11 @@ entrypoints/
 ├── agent.ts             # injected into the page (MAIN world) on demand: capture,
 │                        # controls, GSAP, highlight overlay, JS-driven detection
 └── sidepanel/
-    ├── main.ts          # tab tracking, polling, transport controls
+    ├── main.ts          # tab tracking, polling, keyboard
+    ├── transport/       # play, restart, readout, speed menu, waveform scrubbers
+    │   ├── transport.ts # global transport and the detail scrubber
+    │   ├── waveform.ts  # device-pixel bars, playhead, hover preview
+    │   └── scrubber.ts  # role=slider engine: pointer, keys, ARIA
     ├── bridge.ts        # every agent call is one chrome.scripting.executeScript
     ├── list.ts          # keyed, grouped rows, updated in place; keyboard nav
     ├── detail.ts        # drill-in view: curve, scrubber, timing, export tabs
@@ -131,6 +136,7 @@ lib/
 fixtures/                # test pages
 scripts/                 # fixture server, e2e, icon + font helpers
 docs/plan.md             # design notes and v1 scope
+docs/transport-research.md  # media player anatomy behind the transport
 ```
 
 ## Tech
