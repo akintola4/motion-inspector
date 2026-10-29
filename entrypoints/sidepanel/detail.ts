@@ -9,7 +9,7 @@ import { bigCurve, type BigCurve } from './curve';
 import { icons } from './icons';
 import { highlight } from './code';
 import { KIND_LABEL, fmtDur, stateText } from './list';
-import type { DetailFactory, DetailScrubber } from './transport/types';
+import type { DetailOptions, DetailScrubber } from './transport/types';
 
 export type ExportTab = 'css' | 'linear' | 'motion' | 'gsap';
 
@@ -23,8 +23,8 @@ const TABS: { id: ExportTab; label: string; fn: (s: AnimationSpec) => string }[]
 export interface DetailCallbacks {
   onBack(): void;
   onScrub(id: string, t: number): void;
-  /** The current transport option's detail scrubber. */
-  scrubber(): DetailFactory;
+  /** Builds the detail scrubber (transport/transport.ts). */
+  scrubber(): (o: DetailOptions) => DetailScrubber;
   getTab(): ExportTab;
   setTab(tab: ExportTab): void;
 }
@@ -328,10 +328,6 @@ export function createDetail(root: HTMLElement, cb: DetailCallbacks) {
 
   return {
     render,
-    /** Rebuild with the current transport option's scrubber on the next render. */
-    rebuild() {
-      currentId = null;
-    },
     get id() {
       return currentId;
     },

@@ -1,6 +1,6 @@
 {
   "name": "motion-inspector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Chrome extension to pause, scrub and export the animations on any page",
   "type": "module",

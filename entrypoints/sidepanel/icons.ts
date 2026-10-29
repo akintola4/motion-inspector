@@ -6,12 +6,7 @@ const svg = (body: string) =>
 export const icons = {
   play: svg('<path d="M7 4.5v15a.5.5 0 0 0 .77.42l11.5-7.5a.5.5 0 0 0 0-.84L7.77 4.08A.5.5 0 0 0 7 4.5Z" fill="currentColor" stroke="none"/>'),
   pause: svg('<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/>'),
-  /* Frame step: a bar and a triangle, like a media "previous / next". */
-  stepBack: svg('<rect x="5" y="5" width="2.5" height="14" rx="1" fill="currentColor" stroke="none"/><path d="M19 5.9v12.2a.6.6 0 0 1-.93.5l-8.9-6.1a.6.6 0 0 1 0-1l8.9-6.1a.6.6 0 0 1 .93.5Z" fill="currentColor" stroke="none"/>'),
-  stepFwd: svg('<rect x="16.5" y="5" width="2.5" height="14" rx="1" fill="currentColor" stroke="none"/><path d="M5 5.9v12.2a.6.6 0 0 0 .93.5l8.9-6.1a.6.6 0 0 0 0-1l-8.9-6.1A.6.6 0 0 0 5 5.9Z" fill="currentColor" stroke="none"/>'),
   chevronDown: svg('<path d="m6 9 6 6 6-6"/>'),
-  minus: svg('<path d="M6 12h12"/>'),
-  plus: svg('<path d="M12 6v12M6 12h12"/>'),
   restart: svg('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>'),
   sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>'),
   moon: svg('<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11Z"/>'),

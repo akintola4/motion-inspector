@@ -1,19 +1,5 @@
-/**
- * Transport options (preview). Three designs from docs/transport-research.md
- * plus the current one, switchable from the header. Everything for the
- * switch lives in this folder, so dropping the losers is a delete here plus
- * the switcher lines in main.ts.
- */
-import type { AnimationSpec } from '../../../lib/types';
-
-export type Variant = 'current' | 'a' | 'b' | 'c';
-
-export const VARIANTS: { id: Variant; short: string; name: string }[] = [
-  { id: 'current', short: 'Old', name: 'Current transport' },
-  { id: 'a', short: 'A', name: 'A · Now Playing (Apple Music)' },
-  { id: 'b', short: 'B', name: 'B · Editor (DAW / NLE)' },
-  { id: 'c', short: 'C', name: 'C · Waveform (SoundCloud / YouTube)' },
-];
+/** Shapes shared by the transport (global timeline) and the detail scrubber. */
+import type { AnimationKind, AnimationSpec } from '../../../lib/types';
 
 export const RATES = [0.1, 0.25, 0.5, 1];
 /** One frame at 60 fps, in ms. */
@@ -24,6 +10,7 @@ export interface Lane {
   start: number;
   end: number;
   name: string;
+  kind: AnimationKind;
 }
 
 export interface GlobalState {
@@ -47,16 +34,6 @@ export interface GlobalCallbacks {
   restart(): void;
   /** Called per input event; main coalesces to one agent call per frame. */
   scrub(t: number): void;
-  /** Pause and move by whole frames (negative = back). */
-  step(frames: number): void;
-}
-
-export interface GlobalTransport {
-  el: HTMLElement;
-  render(s: GlobalState): void;
-  /** True while a pointer drag is in progress (main skips poll updates). */
-  readonly dragging: boolean;
-  destroy(): void;
 }
 
 export interface DetailModel {
@@ -84,30 +61,6 @@ export interface DetailOptions {
   onScrub(value: number): void;
 }
 
-export type DetailFactory = (o: DetailOptions) => DetailScrubber;
-
-export interface TransportFactory {
-  global(cb: GlobalCallbacks): GlobalTransport;
-  detail: DetailFactory;
-}
-
-/** "1628 ms"; values are fractional during frame stepping. */
+/** "1628"; values are fractional during frame stepping. */
 export const ms = (n: number) => String(Math.round(n));
 
-/** Spoken value for the global slider. */
-export function globalValueText(s: { live: boolean; pos: number; end: number }) {
-  return s.live ? `Live, timeline ${ms(s.end)} milliseconds` : `${ms(s.pos)} of ${ms(s.end)} milliseconds`;
-}
-
-/** Spoken value for a detail slider, from its label ("372 / 2000 ms · iteration 14"). */
-export function detailValueText(m: DetailModel) {
-  if (m.word) return m.word;
-  return m.label.replace(' / ', ' of ').replace(' ms', ' milliseconds').replace(' · ', ', ');
-}
-
-/** Split a oneScrub label into its parts. */
-export function parseLabel(label: string) {
-  const m = /^(\d+) \/ (\d+) ms(?: · (.*))?$/.exec(label);
-  if (!m) return null;
-  return { cur: Number(m[1]), max: Number(m[2]), where: m[3] ?? '' };
-}

@@ -7,7 +7,8 @@ import { setupTheme } from './theme';
 import { RestrictedPageError, TabBridge, isRestrictedUrl } from './bridge';
 import { createList } from './list';
 import { createDetail, type ExportTab } from './detail';
-import { FACTORIES, FRAME, RATES, readVariant, variantSwitch, type GlobalState, type GlobalTransport, type Lane, type Variant } from './transport';
+import { createDetailScrubber, createTransport } from './transport/transport';
+import { FRAME, type GlobalState, type Lane } from './transport/types';
 import { nextRate } from './transport/controls';
 
 const POLL_MS = 250;
@@ -41,7 +42,8 @@ let status: 'loading' | 'ready' | 'restricted' | 'error' = 'loading';
 let errorText = '';
 let inFlight = false;
 let pendingScrub: number | null = null;
-let variant: Variant = readVariant();
+/** Widest filter count seen on this page (≥ 2 digits). */
+let countDigits = 2;
 let listScroll = 0;
 let host = '';
 
@@ -126,9 +128,8 @@ const transportCallbacks = {
   setRate: (r: number) => void setRate(r),
   restart: () => void restart(),
   scrub: (t: number) => queueScrub(t),
-  step: (frames: number) => step(frames),
 };
-let transport: GlobalTransport = FACTORIES[variant].global(transportCallbacks);
+const transport = createTransport(transportCallbacks);
 const filterBtns = FILTERS.map((f) => {
   // Two-digit slot: the label doesn't slide as the count goes 9 → 10.
   const count = numSlot(2);
@@ -150,20 +151,8 @@ const listView = h(
   listRoot,
 );
 
-const variantEl = variantSwitch(variant, (v) => {
-  if (v === variant) return;
-  variant = v;
-  const next = FACTORIES[v].global(transportCallbacks);
-  transport.destroy();
-  transport.el.replaceWith(next.el);
-  transport = next;
-  app.dataset.transport = v;
-  detail.rebuild();
-  render();
-});
-app.dataset.transport = variant;
 app.append(
-  h('header', { class: 'top' }, statusEl, hostEl, gsapEl, variantEl, themeBtn),
+  h('header', { class: 'top' }, statusEl, hostEl, gsapEl, themeBtn),
   transport.el,
   h('main', { class: 'body' }, listView, detailRoot),
 );
@@ -184,7 +173,7 @@ listRoot.prepend(stateRoot);
 const detail = createDetail(detailRoot, {
   onBack: () => void open(null),
   onScrub: (id, t) => void call('scrubOne', id, t).then(poll),
-  scrubber: () => FACTORIES[variant].detail,
+  scrubber: () => createDetailScrubber,
   getTab: () => exportTab,
   setTab: (t) => (exportTab = t),
 });
@@ -456,13 +445,15 @@ function setDisabled(els: (HTMLButtonElement | HTMLInputElement)[], disabled: bo
   for (const el of els) if (el.disabled !== disabled) el.disabled = disabled;
 }
 
-/** Each live animation's span on the global timeline (scrub sets every animation to the same time). */
+/** Each captured animation's span on the global timeline (scrub sets every animation to the same time). */
 function lanesOf(s: AgentSnapshot): Lane[] {
   return s.animations
-    .filter((a) => !a.live.ended && !a.live.scrollLinked)
+    // Ended ones too: they still say where things happen, and keeping them
+    // means the waveform doesn't change shape every time a transition ends.
+    .filter((a) => !a.live.scrollLinked)
     .map((a) => {
       const it = a.spec.iterations === 'infinite' ? 1 : a.spec.iterations;
-      return { start: a.spec.delay, end: Math.min(s.scrubEnd, a.spec.delay + a.spec.duration * it), name: a.spec.name };
+      return { start: a.spec.delay, end: Math.min(s.scrubEnd, a.spec.delay + a.spec.duration * it), name: a.spec.name, kind: a.spec.kind };
     })
     .filter((l) => l.end > l.start);
 }
@@ -504,12 +495,15 @@ function render(background = false) {
   const lingering = lingeringIds(snap.animations, endedAt, performance.now(), LINGER_MS, !lingerPrimed);
   lingerPrimed = true;
   const { shown, counts, hiddenNoop } = filterAnimations(snap.animations, filter, showNoop, lingering);
+  // Count slots only grow, and all three share one width: a count flipping
+  // between 99 and 100 mustn't resize the tabs.
+  countDigits = Math.max(countDigits, ...filterBtns.map((f) => String(counts[f.id]).length));
   for (const f of filterBtns) {
     const on = f.id === filter;
     f.b.classList.toggle('is-on', on);
     setAttr(f.b, 'aria-selected', String(on));
     f.count.set(String(counts[f.id]));
-    f.count.digits(Math.max(2, String(counts[f.id]).length));
+    f.count.digits(countDigits);
   }
   const sel = snap.animations.find((a) => a.spec.id === selectedId) ?? null;
   if (selectedId && !sel) selectedId = null;
@@ -561,6 +555,7 @@ async function attach(tabId: number, url?: string) {
   endedAt.clear();
   lingerPrimed = false;
   reorder = true;
+  countDigits = 2;
   resetCache();
   host = url ? hostOf(url) : '';
   setText(hostEl, host);
