@@ -121,28 +121,15 @@ interface Result {
   drift: string[];
 }
 const results: Result[] = [];
-let shotPrefix = '';
 
-/** Transport options to audit on all.html (see entrypoints/sidepanel/transport). */
-const VARIANTS = (process.env.VARIANTS ?? 'current,a,b,c').split(',');
-/** Every option tags its stable parts with data-part. */
-const STABLE_ANY = ['.top', '.top .host', '.top > .icon-btn', '.status', '.status-dot', '.variant-switch', '.transport', '.transport [data-part]', '.list-bar', '.seg-btn[data-filter]'];
+/** Header, transport parts (tagged data-part), filter bar. */
+const STABLE_CHROME = ['.top', '.top .host', '.top > .icon-btn', '.status', '.status-dot', '.transport', '.transport [data-part]', '.list-bar', '.seg-btn[data-filter]'];
 
-/** Set the global scrubber: native range (current) or an option's role=slider. */
+/** Set the global scrubber to an exact time (its `mi-seek` hook). */
 async function seekGlobal(panel: Page, value: number) {
-  await panel.$eval(
-    '.transport [data-part=scrubber]',
-    (el, v) => {
-      if (el instanceof HTMLInputElement) {
-        el.value = String(v);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      } else el.dispatchEvent(new CustomEvent('mi-seek', { detail: v }));
-    },
-    value,
-  );
+  await panel.$eval('.transport [data-part=scrubber]', (el, v) => el.dispatchEvent(new CustomEvent('mi-seek', { detail: v })), value);
 }
 
-const STABLE_CHROME_CURRENT = ['.top', '.top .host', '.top .icon-btn', '.top .live-dot', 'button.play', '.transport .seg', '.transport .seg-btn', '.transport .icon-btn', '.status', '.status-dot', '.timeline', '.transport .time', '.list-bar', '.seg-btn[data-filter]'];
 
 async function step(
   panel: Page,
@@ -154,11 +141,11 @@ async function step(
 ) {
   const before = await rects(panel, stable);
   const { shifts: n } = await auditState(panel);
-  if (opts.shot) await panel.screenshot({ path: join(OUT, `${shotPrefix}${opts.shot}-before.png`) });
+  if (opts.shot) await panel.screenshot({ path: join(OUT, `${opts.shot}-before.png`) });
   await run();
   await sleep(opts.settle ?? 500);
   const after = await rects(panel, stable);
-  if (opts.shot) await panel.screenshot({ path: join(OUT, `${shotPrefix}${opts.shot}-after.png`) });
+  if (opts.shot) await panel.screenshot({ path: join(OUT, `${opts.shot}-after.png`) });
   const shifts = await shiftsSince(panel, n);
   const r: Result = {
     fixture,
@@ -254,11 +241,9 @@ async function main() {
   const sw = ctx.serviceWorkers()[0] ?? (await ctx.waitForEvent('serviceworker'));
   const extId = new URL(sw.url()).host;
 
-  /* ---------------- all.html, once per transport option ---------------- */
-  for (const variant of VARIANTS) {
-    const F = `all.html [${variant}]`;
-    const STABLE_CHROME = variant === 'current' ? [...STABLE_ANY, ...STABLE_CHROME_CURRENT] : STABLE_ANY;
-    shotPrefix = variant === 'current' ? '' : `${variant}-`;
+  /* ---------------- all.html ---------------- */
+  {
+    const F = 'all.html';
     const page = await ctx.newPage();
     await page.goto(`${BASE}/all.html`);
     await sleep(900);
@@ -267,7 +252,7 @@ async function main() {
     // Connecting… → loaded: header + transport must already be in their final place.
     const panel = await ctx.newPage();
       await panel.setViewportSize(PANEL_SIZE);
-    await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=light&transport=${variant}`, { waitUntil: 'commit' });
+    await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=light`, { waitUntil: 'commit' });
     await panel.waitForSelector('.top');
     await step(panel, F, 'Connecting… → loaded', STABLE_CHROME, () => panel.waitForSelector('.rows .row').then(() => {}), { settle: 900, shot: 'load' });
 
@@ -286,11 +271,13 @@ async function main() {
     await idle(panel, F, 'idle polling, list, paused (3 s)', [...STABLE_CHROME, ...ROW_PARTS]);
     await step(panel, F, 'play (Space)', [...STABLE_CHROME, ...ROW_PARTS], () => panel.keyboard.press(' '), { shot: 'play' });
 
-    if (variant === 'current') {
-      for (const r of ['0.1', '0.25', '0.5', '1']) {
-        await step(panel, F, `speed → ${r}×`, STABLE_CHROME, () => panel.click(`.seg-btn[data-rate="${r}"]`));
-      }
-    } else {
+    {
+      await step(panel, F, 'speed popover open', [...STABLE_CHROME, ...ROW_PARTS], () => panel.click('.tc-speed'));
+      await step(panel, F, 'speed → 0.25× (popover)', STABLE_CHROME, () => panel.click('.tc-item[data-rate="0.25"]'));
+      await step(panel, F, 'speed → 1× (popover)', STABLE_CHROME, async () => {
+        await panel.click('.tc-speed');
+        await panel.click('.tc-item[data-rate="1"]');
+      });
       await panel.mouse.move(5, 5);
       for (const k of ['j', 'j', 'j', 'l', 'l', 'l']) await step(panel, F, `speed key ${k.toUpperCase()}`, STABLE_CHROME, () => panel.keyboard.press(k), { settle: 350 });
       await step(panel, F, 'pause + frame steps (. ×3, , ×1)', STABLE_CHROME, async () => {
@@ -349,10 +336,8 @@ async function main() {
     await page.close();
   }
 
-  /* ---------------- noisy.html (current transport) ---------------- */
+  /* ---------------- noisy.html ---------------- */
   {
-    shotPrefix = '';
-    const STABLE_CHROME = [...STABLE_ANY, ...STABLE_CHROME_CURRENT];
     const F = 'noisy.html';
     const page = await ctx.newPage();
     await page.goto(`${BASE}/${F}`);
@@ -404,6 +389,30 @@ async function main() {
     await step(panel, F, 'pause, list', [...STABLE_CHROME, ...ROW_PARTS], () => panel.click('button.play'), { shot: 'noisy-pause' });
     await step(panel, F, 'play, list', [...STABLE_CHROME, ...ROW_PARTS], () => panel.click('button.play'));
 
+    await panel.close();
+    await page.close();
+  }
+
+  /* ---------------- many.html at side-panel widths ---------------- */
+  {
+    const F = 'many.html';
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/${F}`);
+    await sleep(700);
+    const tabId = await tabIdFor(sw, page);
+    const panel = await openPanel(ctx, extId, tabId);
+    await panel.waitForSelector('.rows .row');
+    await sleep(800);
+    for (const width of [300, 320, 360, 400, 480, 600]) {
+      await panel.setViewportSize({ width, height: 800 });
+      await sleep(300);
+      await idle(panel, F, `idle polling at ${width}px (2 s)`, [...STABLE_CHROME, ...ROW_PARTS], 2000);
+      const o = await panel.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+      const drift = o.sw > o.cw ? [`horizontal overflow: scrollWidth ${o.sw} > clientWidth ${o.cw}`] : [];
+      results.push({ fixture: F, action: `no horizontal overflow at ${width}px`, shifts: 0, shiftScore: 0, shiftSources: [], drift });
+      console.log(`${drift.length ? 'SHIFT' : 'ok   '} ${F} · no horizontal overflow at ${width}px (${o.sw} / ${o.cw})`);
+      alignRows.push({ where: `${F} ${width}px`, ...(await measureAlignment(panel)) });
+    }
     await panel.close();
     await page.close();
   }

@@ -96,11 +96,18 @@ async function noShift(panel: Page, name: string, stable: string[], action: () =
 }
 
 /** Stable parts for any transport option: everything tagged data-part in the transport. */
-const CHROME_ANY = ['.top', '.top .status', '.top .host', '.top > .icon-btn', '.variant-switch', '.transport', '.transport [data-part]', '.list-bar', '.seg-btn[data-filter]'];
+const CHROME_ANY = ['.top', '.top .status', '.top .host', '.top > .icon-btn', '.transport', '.transport [data-part]', '.list-bar', '.seg-btn[data-filter]'];
 const DETAIL_ANY = ['.detail-bar', '.back', '.detail-head h2', '.big-curve', '.ease-row', '.scrub-one', '.scrub-one [data-part]', '.export-bar', '.code', '.keyframes'];
 
-const CHROME = ['.top', '.top .status', '.top .host', '.top .icon-btn', 'button.play', '.transport .seg', '.transport .seg-btn', '.transport-row > .icon-btn', '.timeline', '.transport .time', '.list-bar', '.seg-btn[data-filter]'];
-const DETAIL = ['.detail-bar', '.back', '.back svg', '.detail-head h2', '.big-curve', '.scrub-one .slider', '.scrub-one .time', '.export-bar', '.seg-btn[data-tab]', '.export-bar .copy', '.code', '.keyframes'];
+const CHROME = CHROME_ANY;
+const DETAIL = DETAIL_ANY;
+const G = '.transport [data-part=scrubber]';
+
+/** Pick a speed from the popover. */
+async function pickRate(panel: Page, r: number) {
+  await panel.click('.tc-speed');
+  await panel.click(`.tc-item[data-rate="${r}"]`);
+}
 
 const MARKERS: Record<string, RegExp> = {
   css: /@keyframes|transition:/,
@@ -244,8 +251,24 @@ async function main() {
     // Alignment: status dot on the host's cap height, transport on one centre line.
     const al = await measureAlignment(panel);
     check('status dot centred on the host cap height (±0.5px)', Math.abs(al.dotVsCap) <= 0.5, `${al.dotVsCap}px`);
-    check('play, speed and restart share one centre line', al.segVsPlay === 0 && al.restartVsPlay === 0, `seg ${al.segVsPlay} restart ${al.restartVsPlay}`);
-    check('dot / play share the left gutter; theme / restart the right', al.dotLeftVsPlayLeft === 0 && al.themeRightVsRestartRight === 0, `left ${al.dotLeftVsPlayLeft} right ${al.themeRightVsRestartRight}`);
+    const near = (n: number | null) => n != null && Math.abs(n) <= 0.5;
+    check('play, restart, readout and speed share one centre line (boxes)', near(al.rowVsPlay), `${al.rowVsPlay}px (${al.rowParts})`);
+    check('readout and speed text sit on the play centre line (cap height, ±0.5px)', near(al.readoutCapVsPlay) && near(al.speedCapVsPlay), `readout ${al.readoutCapVsPlay} speed ${al.speedCapVsPlay}`);
+    check('speed chevron centred on its label (±0.5px)', near(al.caretVsSpeedCap), `${al.caretVsSpeedCap}px`);
+    check('dot / play share the left gutter; theme / speed the right', near(al.startVsDot) && near(al.endVsTheme), `left ${al.startVsDot} right ${al.endVsTheme}`);
+    check('waveform spans gutter to gutter (±0.5px)', near(al.timelineLeftVsDot) && near(al.timelineRightVsTheme), `left ${al.timelineLeftVsDot} right ${al.timelineRightVsTheme}`);
+    const px = await panel.evaluate(() => {
+      const f = document.querySelector('.transport .tc-field')!.getBoundingClientRect();
+      const bars = [...document.querySelectorAll<HTMLElement>('.transport .tc-base .tc-b')].map((b) => b.getBoundingClientRect());
+      const xs = bars.map((b) => b.left);
+      const dpr = devicePixelRatio;
+      const pitches = new Set(xs.slice(1).map((x, i) => Math.round((x - xs[i]!) * dpr)));
+      const widths = new Set(bars.map((b) => Math.round(b.width * dpr * 100) / 100));
+      const frac = (n: number) => Math.abs(n * dpr - Math.round(n * dpr));
+      return { n: bars.length, dpr, pitches: [...pitches], widths: [...widths], offGrid: bars.some((b) => frac(b.left) > 0.01 || frac(b.width) > 0.01), fieldLeft: f.left };
+    });
+    // Gaps are equal, or differ by one device pixel where the width can't be divided evenly.
+    check('waveform bars: one bar width, pitches within one device pixel, all on device pixels', px.widths.length === 1 && Math.max(...px.pitches) - Math.min(...px.pitches) <= 1 && !px.offGrid && px.n >= 24, JSON.stringify(px));
     const status0 = await panel.$eval('.top .status', (el) => ({ state: (el as HTMLElement).dataset.state, word: el.textContent, title: (el as HTMLElement).title }));
     check('header dot says Live (screen reader text + tooltip)', status0.state === 'live' && status0.word === 'Live' && /Live/.test(status0.title), JSON.stringify(status0));
 
@@ -257,7 +280,7 @@ async function main() {
     check('header dot says Paused', status1.state === 'paused' && status1.word === 'Paused', JSON.stringify(status1));
     await noShift(panel, 'play keeps transport + header still', CHROME, () => panel.click('button.play'));
 
-    await panel.click('.seg-btn[data-rate="0.25"]');
+    await pickRate(panel, 0.25);
     await sleep(400);
     let p = await probe(page);
     check(
@@ -265,7 +288,7 @@ async function main() {
       p.animations.length > 0 && p.animations.every((a) => a.playbackRate === 0.25) && p.gsap?.timeScale === 0.25,
       p.animations.map((a) => a.playbackRate).join(',') + ` gsap ${p.gsap?.timeScale}`,
     );
-    await panel.click('.seg-btn[data-rate="1"]');
+    await pickRate(panel, 1);
 
     await panel.click('button.play');
     await sleep(300);
@@ -279,7 +302,7 @@ async function main() {
     check('pause freezes currentTime', frozen && a1.animations.every((a) => a.playState === 'paused'), `${a1.animations.length} animations`);
     check('pause pauses GSAP global timeline', a2.gsap?.paused === true && JSON.stringify(a1.gsap?.times) === JSON.stringify(a2.gsap?.times));
 
-    await setRange(panel, '.transport .slider', 400);
+    await setRange(panel, G, 400);
     await sleep(400);
     p = await probe(page);
     const scrubbed = p.animations.filter((a) => a.currentTime !== 400);
@@ -291,7 +314,7 @@ async function main() {
     );
     check('global scrub moves GSAP to 400 ms', !!p.gsap && p.gsap.times.every((t) => Math.abs(t - 400) < 1), p.gsap?.times.join(','));
 
-    await setRange(panel, '.transport .slider', 150);
+    await setRange(panel, G, 150);
     await sleep(300);
     p = await probe(page);
     check('scrub again to 150 ms', p.animations.filter((a) => a.kind !== 'css-transition').every((a) => a.currentTime === 150));
@@ -299,17 +322,17 @@ async function main() {
     // Per-animation scrub on the WAAPI slide.
     const slideRow = panel.locator('.rows .row[data-id]', { hasText: 'slide' }).first();
     await noShift(panel, 'drill in keeps header + transport still', CHROME.slice(0, 10), () => slideRow.click());
-    await panel.waitForSelector('.detail .slider');
+    await panel.waitForSelector('.scrub-one [data-part=scrubber]');
     const chev = await measureAlignment(panel);
     check('back chevron centred on its label cap height (±0.5px)', chev.chevronVsCap != null && Math.abs(chev.chevronVsCap) <= 0.5, `${chev.chevronVsCap}px`);
     for (const t of ['linear', 'motion', 'gsap', 'css']) {
       await noShift(panel, `export tab → ${t}`, DETAIL, () => panel.click(`.seg-btn[data-tab="${t}"]`), 200);
     }
     await noShift(panel, 'Copy → Copied keeps the button size', DETAIL, () => panel.click('.export-bar .copy'), 200);
-    await noShift(panel, 'paused detail: polling + global scrub keep readout + slider still', DETAIL, () => setRange(panel, '.transport .slider', 1234), 1200);
-    await setRange(panel, '.transport .slider', 150);
+    await noShift(panel, 'paused detail: polling + global scrub keep readout + slider still', DETAIL, () => setRange(panel, G, 1234), 1200);
+    await setRange(panel, G, 150);
     await sleep(300);
-    await setRange(panel, '.detail .slider', 777);
+    await setRange(panel, '.scrub-one [data-part=scrubber]', 777);
     await sleep(300);
     p = await probe(page);
     const slide = p.animations.find((a) => a.name === 'slide');
@@ -320,7 +343,7 @@ async function main() {
     await panel.keyboard.press('Escape');
     await sleep(200);
     await panel.locator('.rows .row[data-id]', { hasText: 'drop' }).first().click();
-    await setRange(panel, '.transport .slider', 420);
+    await setRange(panel, G, 420);
     await sleep(500);
     await panel.click('.seg-btn[data-tab="motion"]');
     await sleep(200);
@@ -403,18 +426,17 @@ async function main() {
   /* ---------------------------------------------------------------- */
   /* Transport options A, B, C: alignment, no-shift, keys, semantics   */
   /* ---------------------------------------------------------------- */
-  for (const v of ['a', 'b', 'c'] as const) {
+  {
     const page = await ctx.newPage();
     await page.goto(`${BASE}/all.html`);
     await sleep(800);
     const tabId = await tabIdFor(sw, page);
     const panel = await ctx.newPage();
     await panel.setViewportSize(PANEL_SIZE);
-    await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=light&transport=${v}`);
+    await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=light`);
     await panel.waitForSelector('.rows .row');
     await sleep(800);
-    const T = `[${v.toUpperCase()}]`;
-    const G = '.transport [data-part=scrubber]';
+    const T = '[transport]';
     const agent = () =>
       page.evaluate(() => (window as unknown as { __motionInspector: { snapshot(): import('../lib/types').AgentSnapshot } }).__motionInspector.snapshot());
     const near = (n: number) => Math.abs(n) <= 0.5;
@@ -435,7 +457,7 @@ async function main() {
       h: el.getBoundingClientRect().height,
     }));
     check(`${T} global scrubber is a labelled slider with a 24px+ hit area`, sem.role === 'slider' && sem.tab === '0' && !!sem.label && sem.h >= 24, `${sem.role} h=${sem.h}`);
-    check(`${T} live slider says it's live`, /^Live, timeline \d+ milliseconds$/.test(sem.text), sem.text);
+    check(`${T} live slider says it's live`, /^Live, timeline \d+ milliseconds, \d+ animations?$/.test(sem.text), sem.text);
     check(`${T} transport says live`, (await panel.$eval('.transport', (el) => (el as HTMLElement).dataset.state)) === 'live');
 
     // No-shift: pause, play, speed, keyboard step, scrub, drag, hover.
@@ -447,19 +469,7 @@ async function main() {
     a = await agent();
     check(`${T} Space plays`, !a.paused);
 
-    if (v === 'a') {
-      await noShift(panel, `${T} speed pill cycles without moving`, CHROME_ANY, () => panel.click('.ta-speed'));
-      check(`${T} speed pill: 1× → 0.1×`, (await agent()).rate === 0.1);
-      for (let i = 0; i < 3; i++) await panel.click('.ta-speed');
-      await sleep(300);
-      check(`${T} speed pill cycles back to 1×`, (await agent()).rate === 1);
-    } else if (v === 'b') {
-      await noShift(panel, `${T} speed stepper − keeps chrome still`, CHROME_ANY, () => panel.click('.tb-step-rate >> nth=0'));
-      check(`${T} stepper − : 1× → 0.5×`, (await agent()).rate === 0.5);
-      await panel.click('.tb-step-rate >> nth=1');
-      await sleep(300);
-      check(`${T} stepper + : back to 1×`, (await agent()).rate === 1);
-    } else {
+    {
       await noShift(panel, `${T} speed popover opens over the list`, [...CHROME_ANY, '.rows .row'], () => panel.click('.tc-speed'));
       const open = await panel.$eval('.tc-menu', (el) => getComputedStyle(el).visibility);
       check(`${T} speed popover is visible`, open === 'visible');
@@ -500,7 +510,7 @@ async function main() {
     let p = await probe(page);
     check(`${T} scrub sets currentTime = 400 ms`, p.animations.filter((x) => x.kind !== 'css-transition').every((x) => x.currentTime === 400), p.animations.map((x) => `${x.name}=${x.currentTime}`).join(' '));
     const text = await panel.$eval(G, (el) => el.getAttribute('aria-valuetext') ?? '');
-    check(`${T} aria-valuetext reads the position`, /^400 of \d+ milliseconds$/.test(text), text);
+    check(`${T} aria-valuetext reads the position and what runs there`, /^400 of \d+ milliseconds, \d+ running: .+$/.test(text), text);
     await panel.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await noShift(panel, `${T} '.' frame step keeps chrome still`, CHROME_ANY, async () => {
       for (let i = 0; i < 3; i++) await panel.keyboard.press('.');
@@ -519,6 +529,17 @@ async function main() {
     await sleep(400);
     p = await probe(page);
     check(`${T} Home on the slider goes to 0`, p.animations.filter((x) => x.kind !== 'css-transition').every((x) => x.currentTime === 0));
+    await panel.keyboard.press('Shift+ArrowRight');
+    await sleep(400);
+    p = await probe(page);
+    const s10 = p.animations.find((x) => x.name === 'slide');
+    check(`${T} Shift+→ on the slider steps 10 frames`, !!s10 && Math.abs((s10.currentTime ?? 0) - 166.67) < 0.5, `slide=${s10?.currentTime}`);
+    const ring = await panel.$eval(G, (el) => el.matches(':focus-visible') && getComputedStyle(el).outlineStyle !== 'none');
+    check(`${T} keyboard focus shows a focus ring`, ring);
+    await panel.keyboard.press('End');
+    await sleep(400);
+    const endState = await panel.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    check(`${T} playhead at the end doesn't widen the panel`, endState.sw <= endState.cw, JSON.stringify(endState));
     await panel.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
     // A real pointer drag: nothing but the playhead moves.
@@ -534,6 +555,18 @@ async function main() {
     const focusRing = await panel.$eval(G, (el) => el.matches(':focus-visible'));
     check(`${T} no focus ring after a pointer drag`, !focusRing);
     await noShift(panel, `${T} hover over the scrubber keeps chrome still`, CHROME_ANY, () => panel.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2));
+    for (const f of [0.01, 0.5, 0.995]) {
+      await panel.mouse.move(box.x + box.width * f, box.y + box.height / 2);
+      await sleep(200);
+      const tip = await panel.evaluate(() => {
+        const t = document.querySelector('.transport .tc-tip')!.getBoundingClientRect();
+        const w = document.querySelector('.transport .tc-wave')!.getBoundingClientRect();
+        const r = document.querySelector('.transport [data-part=time]')!.getBoundingClientRect();
+        const o = getComputedStyle(document.querySelector('.transport .tc-tip')!).opacity;
+        return { left: t.left, right: t.right, top: t.top, waveBottom: w.bottom, waveLeft: w.left, waveRight: w.right, readoutBottom: r.bottom, o, text: document.querySelector('.transport .tc-tip')!.textContent };
+      });
+      check(`${T} hover preview at ${f}: below the bars, inside the scrubber, clear of the readout`, tip.o === '1' && tip.top >= tip.waveBottom && tip.top > tip.readoutBottom && tip.left >= tip.waveLeft - 0.5 && tip.right <= tip.waveRight + 0.5, JSON.stringify(tip));
+    }
     await panel.mouse.move(200, 700);
 
     // Detail scrubber on the infinite spring.
@@ -567,20 +600,68 @@ async function main() {
     await page.close();
   }
 
-  /* Switching options from the header swaps the transport in place. */
+  /* ---------------------------------------------------------------- */
+  /* Real side-panel widths on a page with ~100 animations             */
+  /* ---------------------------------------------------------------- */
   {
     const page = await ctx.newPage();
-    await page.goto(`${BASE}/all.html`);
-    await sleep(600);
+    await page.goto(`${BASE}/many.html`);
+    await sleep(800);
     const tabId = await tabIdFor(sw, page);
     const panel = await openPanel(ctx, extId, tabId);
     await panel.waitForSelector('.rows .row');
-    const seen: string[] = [];
-    for (const v of ['a', 'b', 'c', 'current']) {
-      await noShift(panel, `switch → ${v} keeps the header still`, ['.top', '.top .host', '.top > .icon-btn', '.variant-switch'], () => panel.click(`.variant-switch [data-variant="${v}"]`), 300);
-      seen.push(await panel.$eval('.transport', (el) => (el as HTMLElement).dataset.variant ?? ''));
+    await sleep(800);
+    await panel.evaluate('globalThis.__name ??= (f) => f');
+    const fits = () =>
+      panel.evaluate(() => {
+        const d = document.documentElement;
+        const vis = (sel: string) => {
+          const r = document.querySelector(sel)!.getBoundingClientRect();
+          return r.width > 0 && r.left >= 0 && r.right <= d.clientWidth + 0.5;
+        };
+        // Content inside a clipping scroller (the code block) can be wider; the scroller can't.
+        const clipped = (e: Element) => {
+          for (let p = e.parentElement; p && p !== document.body; p = p.parentElement) if (getComputedStyle(p).overflowX !== 'visible') return true;
+          return false;
+        };
+        const wide = [...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > d.clientWidth + 0.5 && getComputedStyle(e).visibility !== 'hidden' && !clipped(e)).slice(0, 3).map((e) => (e as HTMLElement).className);
+        const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+        const bars = document.querySelectorAll('.transport .tc-base .tc-b');
+        const first = bars[0]!.getBoundingClientRect();
+        const last = bars[bars.length - 1]!.getBoundingClientRect();
+        const edges = {
+          leftBarVsPlay: Math.round((first.left - r('.transport [data-part=play]').left) * 1000) / 1000,
+          leftPlayVsDot: Math.round((r('.transport [data-part=play]').left - r('.top .status').left) * 1000) / 1000,
+          rightBarVsSpeed: Math.round((last.right - r('.transport [data-part=speed]').right) * 1000) / 1000,
+          rightSpeedVsTheme: Math.round((r('.transport [data-part=speed]').right - r('.top > .icon-btn').right) * 1000) / 1000,
+        };
+        return { edges, sw: d.scrollWidth, cw: d.clientWidth, bodySw: document.body.scrollWidth, play: vis('.transport [data-part=play]'), host: vis('.top .host'), speed: vis('.transport [data-part=speed]'), bars: document.querySelectorAll('.transport .tc-base .tc-b').length, wide };
+      });
+    for (const width of [300, 320, 360, 400, 480, 600]) {
+      await panel.setViewportSize({ width, height: 800 });
+      await sleep(300);
+      const live = await fits();
+      const e = live.edges;
+      check(`${width}px: one left edge (first bar, play, dot) and one right edge (last bar, speed, theme), ±0.5px`, Object.values(e).every((x) => Math.abs(x) <= 0.5), JSON.stringify(e));
+      check(`${width}px: no horizontal overflow, play/host/speed visible (live list)`, live.sw <= live.cw && live.bodySw <= live.cw && live.play && live.host && live.speed && live.wide.length === 0 && live.bars >= 24, JSON.stringify(live));
+      await panel.keyboard.press('k');
+      await panel.focus('.transport [data-part=scrubber]');
+      await panel.keyboard.press('End');
+      const b = (await panel.locator('.transport [data-part=scrubber]').boundingBox())!;
+      await panel.mouse.move(b.x + b.width - 1, b.y + 10);
+      await sleep(400);
+      const end = await fits();
+      check(`${width}px: no overflow paused at the end with the hover preview`, end.sw <= end.cw && end.wide.length === 0, JSON.stringify(end));
+      await panel.mouse.move(5, 300);
+      await panel.locator('.rows .row[data-id]').first().click();
+      await panel.waitForSelector('.scrub-one [data-part=scrubber]');
+      await sleep(400);
+      const det = await fits();
+      check(`${width}px: no overflow in the detail view`, det.sw <= det.cw && det.wide.length === 0, JSON.stringify(det));
+      await panel.keyboard.press('Escape');
+      await panel.keyboard.press('k');
+      await sleep(300);
     }
-    check('header switch swaps the transport (a, b, c, current)', seen.join(',') === 'a,b,c,current', seen.join(','));
     await panel.close();
     await page.close();
   }
@@ -651,7 +732,7 @@ async function main() {
     await panel.waitForSelector('.detail .scrub-one .time');
     await sleep(400);
     const readout = (await panel.textContent('.detail .scrub-one .time')) ?? '';
-    const slider = await panel.$eval('.detail .slider', (el) => ({ value: Number((el as HTMLInputElement).value), max: Number((el as HTMLInputElement).max) }));
+    const slider = await panel.$eval('.scrub-one [data-part=scrubber]', (el) => ({ value: Number(el.getAttribute('aria-valuenow')), max: Number(el.getAttribute('aria-valuemax')) }));
     const p = await probe(page);
     const pulse = p.animations.find((a) => a.name === 'pulse');
     const m = readout.match(/^(\d+) \/ 2000 ms · iteration (\d+)$/);

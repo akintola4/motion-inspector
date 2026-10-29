@@ -60,8 +60,13 @@ export interface Alignment {
   restartVsPlay: number;
   /** Largest centre-line offset of any transport part on the play button's row. */
   rowVsPlay: number;
-  /** Which parts share the play row, e.g. "speed restart step-back". */
+  /** Which parts share the play row, e.g. "restart time speed". */
   rowParts: string;
+  /** Cap-height centres of the readout and speed label minus the play button centre. */
+  readoutCapVsPlay: number;
+  speedCapVsPlay: number;
+  /** Speed chevron centre minus its label's cap-height centre. */
+  caretVsSpeedCap: number;
   /** Left edges: status dot box vs play button. Right edges: theme vs restart. */
   dotLeftVsPlayLeft: number;
   themeRightVsRestartRight: number;
@@ -128,7 +133,8 @@ export async function measureAlignment(page: Page): Promise<Alignment> {
     const parts = [...document.querySelectorAll<HTMLElement>('.transport [data-part]')];
     const onRow = parts.filter((el) => {
       const r = el.getBoundingClientRect();
-      return el.dataset.part !== 'play' && r.bottom > play.top && r.top < play.bottom;
+      // The readout is text: it's checked by cap height (readoutCapVsPlay), not by its box.
+      return el.dataset.part !== 'play' && el.dataset.part !== 'time' && r.bottom > play.top && r.top < play.bottom;
     });
     const rowVsPlay = Math.max(0, ...onRow.map((el) => Math.abs(mid(el.getBoundingClientRect()) - mid(play))));
 
@@ -152,6 +158,9 @@ export async function measureAlignment(page: Page): Promise<Alignment> {
       detailScrubberHeight = r3(ds.height);
     }
 
+    const readoutCap = textCentres(document.querySelector<HTMLElement>('.transport [data-part=time] > .tc-end .num-value')!).cap;
+    const speedCap = textCentres(document.querySelector<HTMLElement>('.transport .tc-speed-val')!).cap;
+    const caret = mid(document.querySelectorAll('.transport .tc-speed-group')[1]!.querySelector('.tc-caret svg')!.getBoundingClientRect());
     const start = rect('.transport [data-align=start]');
     const end = rect('.transport [data-align=end]');
     return {
@@ -162,6 +171,9 @@ export async function measureAlignment(page: Page): Promise<Alignment> {
       restartVsPlay: r3(mid(restart) - mid(play)),
       rowVsPlay: r3(rowVsPlay),
       rowParts: onRow.map((el) => el.dataset.part).join(' '),
+      readoutCapVsPlay: r3(readoutCap - mid(play)),
+      speedCapVsPlay: r3(speedCap - mid(play)),
+      caretVsSpeedCap: r3(caret - speedCap),
       dotLeftVsPlayLeft: r3(status.left - play.left),
       themeRightVsRestartRight: r3(theme.right - restart.right),
       startVsDot: r3(start.left - status.left),

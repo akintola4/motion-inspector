@@ -1,8 +1,8 @@
 /**
- * Screenshots of every transport option (Old, A, B, C) in light and dark,
- * playing, paused and scrubbing, for the global transport and the detail
- * scrubber. Saves to screenshots/transport/<variant>-<theme>-<where>-<state>.png
- * plus a full-panel shot per option and theme.
+ * Screenshots of the transport in light and dark, playing, paused, hovering
+ * and scrubbing, for the global transport and the detail scrubber. Saves to
+ * screenshots/transport/<theme>-<where>-<state>.png, a full panel per theme,
+ * and the panel at narrow side-panel widths on a page with ~100 animations.
  *
  *   pnpm shots:transport      (builds first)
  */
@@ -19,20 +19,19 @@ const OUT = join(ROOT, 'screenshots/transport');
 const PORT = 4613;
 const BASE = `http://127.0.0.1:${PORT}`;
 const PANEL = { width: 400, height: 900 };
-const VARIANTS = (process.env.VARIANTS ?? 'current,a,b,c').split(',');
 const THEMES = (process.env.THEMES ?? 'light,dark').split(',');
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Header + transport, with a little of the list for context. */
-async function shotGlobal(panel: Page, name: string) {
+async function shotGlobal(panel: Page, name: string, extra = 12) {
   const box = await panel.locator('.transport').boundingBox();
-  await panel.screenshot({ path: join(OUT, `${name}.png`), clip: { x: 0, y: 0, width: PANEL.width, height: Math.ceil(box!.y + box!.height + 12) } });
+  await panel.screenshot({ path: join(OUT, `${name}.png`), clip: { x: 0, y: 0, width: panel.viewportSize()!.width, height: Math.ceil(box!.y + box!.height + extra) } });
 }
 
 async function shotDetail(panel: Page, name: string) {
   const box = await panel.locator('.curve-card').boundingBox();
-  await panel.screenshot({ path: join(OUT, `${name}.png`), clip: { x: 0, y: Math.floor(box!.y - 8), width: PANEL.width, height: Math.ceil(box!.height + 16) } });
+  await panel.screenshot({ path: join(OUT, `${name}.png`), clip: { x: 0, y: Math.floor(box!.y - 8), width: panel.viewportSize()!.width, height: Math.ceil(box!.height + 48) } });
 }
 
 /** Press on a scrubber at fraction `a`, drag to `b`, and leave it held. */
@@ -60,7 +59,7 @@ async function main() {
   const sw = ctx.serviceWorkers()[0] ?? (await ctx.waitForEvent('serviceworker'));
   const extId = new URL(sw.url()).host;
 
-  for (const variant of VARIANTS) {
+  {
     for (const theme of THEMES) {
       const page = await ctx.newPage();
       await page.goto(`${BASE}/all.html`);
@@ -69,10 +68,10 @@ async function main() {
       const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id ?? -1);
       const panel = await ctx.newPage();
       await panel.setViewportSize(PANEL);
-      await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=${theme}&transport=${variant}`);
+      await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=${theme}`);
       await panel.waitForSelector('.rows .row');
       await sleep(900);
-      const n = `${variant}-${theme}`;
+      const n = theme;
       const gScrub = '.transport [data-part=scrubber]';
 
       // Global: playing, paused, scrubbing.
@@ -80,8 +79,12 @@ async function main() {
       await panel.keyboard.press('k');
       await sleep(600);
       await shotGlobal(panel, `${n}-global-paused`);
+      const gb = (await panel.locator(gScrub).boundingBox())!;
+      await panel.mouse.move(gb.x + gb.width * 0.7, gb.y + 14);
+      await sleep(300);
+      await shotGlobal(panel, `${n}-global-hover`, 40);
       await holdDrag(panel, gScrub, 0.2, 0.45);
-      await shotGlobal(panel, `${n}-global-scrubbing`);
+      await shotGlobal(panel, `${n}-global-scrubbing`, 40);
       await panel.mouse.up();
       await sleep(300);
       await panel.mouse.move(200, 600);
@@ -108,6 +111,33 @@ async function main() {
       await page.close();
       console.log(`shots: ${n}`);
     }
+  }
+
+  /* Narrow side panels on a page with ~100 animations. */
+  {
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/many.html`);
+    await sleep(800);
+    await page.bringToFront();
+    const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id ?? -1);
+    for (const theme of THEMES) {
+      for (const width of [300, 320, 360]) {
+        const panel = await ctx.newPage();
+        await panel.setViewportSize({ width, height: 700 });
+        await panel.goto(`chrome-extension://${extId}/sidepanel.html?tabId=${tabId}&theme=${theme}`);
+        await panel.waitForSelector('.rows .row');
+        await sleep(900);
+        await panel.screenshot({ path: join(OUT, `${theme}-narrow-${width}-playing.png`) });
+        await panel.keyboard.press('k');
+        await panel.focus('.transport [data-part=scrubber]');
+        await panel.keyboard.press('End');
+        await sleep(500);
+        await panel.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await panel.screenshot({ path: join(OUT, `${theme}-narrow-${width}-end.png`) });
+        await panel.close();
+      }
+    }
+    await page.close();
   }
   await ctx.close();
   server.close();

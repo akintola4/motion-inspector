@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><title>Many animations</title><link rel="stylesheet" href="fixture.css">
+<style>
+  /* About 100 animations with long names, staggered delays and mixed kinds:
+     the side panel must fit 300px without scrolling sideways. */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, 28px); gap: 6px; }
+  .b { width: 28px; height: 28px; border-radius: 6px; background: #0070f3; }
+  @keyframes fade-and-slide-in-from-the-left-with-a-long-name { from { opacity: 0; transform: translateX(-8px); } }
+  @keyframes wobble { 50% { transform: rotate(8deg); } }
+  .k1 { animation: fade-and-slide-in-from-the-left-with-a-long-name 1.2s cubic-bezier(0.23, 1, 0.32, 1) infinite; }
+  .k2 { animation: wobble 900ms ease-in-out infinite alternate; }
+  .t { transition: transform 600ms ease, background-color 400ms linear; }
+  .t.on { transform: scale(0.8); background: #f5a524; }
+</style>
+</head>
+<body>
+  <h1>Many animations</h1>
+  <div class="grid" id="grid"></div>
+  <script>
+    const grid = document.getElementById('grid');
+    const els = [];
+    for (let i = 0; i < 100; i++) {
+      const d = document.createElement('div');
+      d.className = 'b';
+      grid.append(d);
+      els.push(d);
+      const kind = i % 4;
+      if (kind === 0) { d.classList.add('k1'); d.style.animationDelay = `${(i * 37) % 1500}ms`; }
+      else if (kind === 1) { d.classList.add('k2'); d.style.animationDelay = `${(i * 53) % 1200}ms`; }
+      else if (kind === 2) { d.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-6px)' }], { duration: 700 + (i % 7) * 150, delay: (i * 29) % 900, iterations: Infinity, direction: 'alternate', easing: 'cubic-bezier(0.65, 0, 0.35, 1)', id: `waapi-bounce-${i}` }); }
+      else { d.classList.add('t'); }
+    }
+    const ts = els.filter((_, i) => i % 4 === 3);
+    setInterval(() => ts.forEach((t) => t.classList.toggle('on')), 1300);
+  </script>
+</body>
+</html>
